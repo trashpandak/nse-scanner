@@ -37,6 +37,29 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 from scipy.signal import find_peaks
+import requests as _requests
+
+def _make_yf_session():
+    """Browser-like session so Yahoo Finance doesn't 429 us on CI/cloud IPs."""
+    s = _requests.Session()
+    s.headers.update({
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+    })
+    try:
+        s.get("https://finance.yahoo.com", timeout=10)
+    except Exception:
+        pass
+    return s
+
+_YF_SESSION = _make_yf_session()
 
 # ================================================================
 # LOGGING
@@ -182,7 +205,8 @@ def dl(sym, interval="1d", period=PERIOD_DAILY):
     for attempt in range(DL_RETRIES):
         try:
             df = yf.download(sym, period=period, interval=interval,
-                             auto_adjust=True, progress=False)
+                             auto_adjust=True, progress=False,
+                             session=_YF_SESSION)
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
             df = df.dropna()
@@ -193,6 +217,10 @@ def dl(sym, interval="1d", period=PERIOD_DAILY):
                 wait = DL_BACKOFF * (attempt + 1)
                 log.debug(f"Retrying in {wait}s...")
                 time.sleep(wait)
+                if "429" in str(e) or "JSONDecodeError" in str(type(e).__name__):
+                    _YF_SESSION.cookies.clear()
+                    try: _YF_SESSION.get("https://finance.yahoo.com", timeout=10)
+                    except Exception: pass
     log.warning(f"Failed to download {sym} after {DL_RETRIES} attempts")
     return None
 
@@ -204,7 +232,7 @@ def dl_fund(sym):
     """
     for attempt in range(DL_RETRIES):
         try:
-            tk = yf.Ticker(sym)
+            tk = yf.Ticker(sym, session=_YF_SESSION)
             info = tk.info or {}
             # If marketCap is missing Yahoo likely rate-limited us — retry
             if not info.get("marketCap"):
