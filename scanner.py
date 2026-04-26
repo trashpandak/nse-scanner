@@ -1145,24 +1145,33 @@ def main():
 
     log.info(f"{len(stocks)} stocks")
     
-    # Fetch Nifty with more retries and longer backoff for index
+    # Fetch Nifty — try multiple symbols, continue without it if all fail
     log.info("Fetching Nifty index...")
     nifty_d = None
-    for attempt in range(DL_RETRIES + 2):  # Extra attempts for critical index
-        nifty_d = dl(NIFTY_SYM, "1d")
+    nifty_candidates = ["^NSEI", "NIFTY_IND_NS", "0P0000QOFJ.BO"]
+    for sym in nifty_candidates:
+        for attempt in range(DL_RETRIES):
+            nifty_d = dl(sym, "1d")
+            if nifty_d is not None:
+                log.info(f"Nifty fetched via {sym} (attempt {attempt+1})")
+                break
+            wait = DL_BACKOFF * (attempt + 1)
+            log.warning(f"Nifty fetch failed for {sym} (attempt {attempt+1}), retrying in {wait}s...")
+            time.sleep(wait)
         if nifty_d is not None:
-            log.info(f"Nifty fetched successfully (attempt {attempt+1})")
             break
-        wait = DL_BACKOFF * (attempt + 2)
-        log.warning(f"Nifty fetch failed (attempt {attempt+1}), retrying in {wait}s...")
-        time.sleep(wait)
-    
-    if nifty_d is None:
-        log.error("Cannot fetch Nifty after all retries"); sys.exit(1)
 
-    ftd_active, ftd_note = check_follow_through_day(nifty_d)
-    market_trend = check_market_trend(nifty_d["Close"].values)
-    log.info(f"Market: {market_trend} | FTD: {ftd_active} ({ftd_note})")
+    if nifty_d is None:
+        log.warning("Cannot fetch Nifty index — continuing scan without market trend/FTD analysis")
+
+    if nifty_d is not None:
+        ftd_active, ftd_note = check_follow_through_day(nifty_d)
+        market_trend = check_market_trend(nifty_d["Close"].values)
+        log.info(f"Market: {market_trend} | FTD: {ftd_active} ({ftd_note})")
+    else:
+        ftd_active, ftd_note = False, "Nifty unavailable"
+        market_trend = "UNKNOWN"
+        log.info("Market trend: UNKNOWN (Nifty data unavailable)")
 
     all_rows   = []
     ok_count   = 0
