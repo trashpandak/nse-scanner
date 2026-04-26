@@ -39,27 +39,18 @@ import numpy as np
 from scipy.signal import find_peaks
 import requests as _requests
 
-def _make_yf_session():
-    """Browser-like session so Yahoo Finance doesn't 429 us on CI/cloud IPs."""
-    s = _requests.Session()
-    s.headers.update({
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/124.0.0.0 Safari/537.36"
-        ),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Connection": "keep-alive",
-    })
-    try:
-        s.get("https://finance.yahoo.com", timeout=10)
-    except Exception:
-        pass
-    return s
-
-_YF_SESSION = _make_yf_session()
+# ================================================================
+# YAHOO FINANCE — simple session with browser UA (same approach as
+# daily_scanner.py which works fine on GitHub Actions)
+# ================================================================
+_YF_SESSION = _requests.Session()
+_YF_SESSION.headers.update({
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+})
 
 # ================================================================
 # LOGGING
@@ -217,10 +208,6 @@ def dl(sym, interval="1d", period=PERIOD_DAILY):
                 wait = DL_BACKOFF * (attempt + 1)
                 log.debug(f"Retrying in {wait}s...")
                 time.sleep(wait)
-                if "429" in str(e) or "JSONDecodeError" in str(type(e).__name__):
-                    _YF_SESSION.cookies.clear()
-                    try: _YF_SESSION.get("https://finance.yahoo.com", timeout=10)
-                    except Exception: pass
     log.warning(f"Failed to download {sym} after {DL_RETRIES} attempts")
     return None
 
@@ -1132,12 +1119,13 @@ def healthcheck():
 def main():
     ap = argparse.ArgumentParser(description="NSE 15-Pattern Live Scanner")
     mode = ap.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--daily", action="store_true", help="Full EOD scan")
+    mode.add_argument("--daily", action="store_true", help="Full EOD scan of all NSE stocks")
     mode.add_argument("--hourly", action="store_true", help="Watchlist check")
     mode.add_argument("--dashboard", action="store_true", help="Web dashboard")
     mode.add_argument("--healthcheck", action="store_true")
-    mode.add_argument("--test", action="store_true", help="5 stocks test")
+    mode.add_argument("--test", action="store_true", help="Quick test with --limit N stocks (default 10)")
     ap.add_argument("--telegram", action="store_true")
+    ap.add_argument("--limit", type=int, default=None, help="Cap number of stocks scanned (for testing)")
     args = ap.parse_args()
 
     if args.healthcheck: sys.exit(0 if healthcheck() else 1)
@@ -1167,9 +1155,11 @@ def main():
     log.info(f"=== {'TEST' if args.test else 'DAILY'} scan {date.today()} ===")
 
     stocks = load_universe()
-    if args.test:
-        stocks = ["RELIANCE.NS","TCS.NS","INFY.NS","HDFCBANK.NS","ADANIENT.NS",
-                  "TATAMOTORS.NS","BAJFINANCE.NS","ICICIBANK.NS","SBIN.NS","LT.NS"]
+    if args.test and args.limit is None:
+        stocks = stocks[:10]  # default test cap
+    elif args.limit:
+        stocks = stocks[:args.limit]
+    # --daily with no --limit = full universe (all stocks)
 
     log.info(f"{len(stocks)} stocks")
     
