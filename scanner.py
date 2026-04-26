@@ -163,7 +163,11 @@ def load_universe():
     url = "https://archives.nseindia.com/content/equities/EQUITY_L.csv"
     for attempt in range(DL_RETRIES):
         try:
-            df = pd.read_csv(url, timeout=30).dropna(subset=["SYMBOL"])
+            import requests
+            from io import StringIO
+            resp = requests.get(url, timeout=30)
+            resp.raise_for_status()
+            df = pd.read_csv(StringIO(resp.text)).dropna(subset=["SYMBOL"])
             for col in [" SERIES", "SERIES"]:
                 if col in df.columns:
                     df = df[df[col].str.strip() == "EQ"]; break
@@ -177,7 +181,7 @@ def dl(sym, interval="1d", period=PERIOD_DAILY):
     for attempt in range(DL_RETRIES):
         try:
             df = yf.download(sym, period=period, interval=interval,
-                             auto_adjust=True, progress=False, timeout=20)
+                             auto_adjust=True, progress=False)
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
             df = df.dropna()
