@@ -66,8 +66,8 @@ NIFTY_SYM    = "^NSEI"
 PERIOD_DAILY = "1y"
 PERIOD_HOURLY = "5d"
 MAX_WORKERS  = 4        # reduced from 8 — prevents Yahoo Finance rate limiting
-DL_RETRIES   = 3
-DL_BACKOFF   = 3.0     # increased from 2.0 — more breathing room between retries
+DL_RETRIES   = 4        # increased from 3
+DL_BACKOFF   = 4.0      # increased from 3.0 — better handling of rate limits
 
 TG_TOKEN = os.environ.get("TG_BOT_TOKEN", "")
 TG_CHAT  = os.environ.get("TG_CHAT_ID", "")
@@ -178,6 +178,7 @@ def load_universe():
     raise RuntimeError("Cannot load NSE stock list")
 
 def dl(sym, interval="1d", period=PERIOD_DAILY):
+    """Download price data with retry logic and better error handling."""
     for attempt in range(DL_RETRIES):
         try:
             df = yf.download(sym, period=period, interval=interval,
@@ -186,8 +187,13 @@ def dl(sym, interval="1d", period=PERIOD_DAILY):
                 df.columns = df.columns.get_level_values(0)
             df = df.dropna()
             return df if len(df) > 20 else None
-        except Exception:
-            if attempt < DL_RETRIES - 1: time.sleep(DL_BACKOFF * (attempt + 1))
+        except Exception as e:
+            log.debug(f"dl({sym}) attempt {attempt+1}: {type(e).__name__}: {e}")
+            if attempt < DL_RETRIES - 1:
+                wait = DL_BACKOFF * (attempt + 1)
+                log.debug(f"Retrying in {wait}s...")
+                time.sleep(wait)
+    log.warning(f"Failed to download {sym} after {DL_RETRIES} attempts")
     return None
 
 def dl_fund(sym):
@@ -1138,9 +1144,21 @@ def main():
                   "TATAMOTORS.NS","BAJFINANCE.NS","ICICIBANK.NS","SBIN.NS","LT.NS"]
 
     log.info(f"{len(stocks)} stocks")
-    nifty_d = dl(NIFTY_SYM, "1d")
+    
+    # Fetch Nifty with more retries and longer backoff for index
+    log.info("Fetching Nifty index...")
+    nifty_d = None
+    for attempt in range(DL_RETRIES + 2):  # Extra attempts for critical index
+        nifty_d = dl(NIFTY_SYM, "1d")
+        if nifty_d is not None:
+            log.info(f"Nifty fetched successfully (attempt {attempt+1})")
+            break
+        wait = DL_BACKOFF * (attempt + 2)
+        log.warning(f"Nifty fetch failed (attempt {attempt+1}), retrying in {wait}s...")
+        time.sleep(wait)
+    
     if nifty_d is None:
-        log.error("Cannot fetch Nifty"); sys.exit(1)
+        log.error("Cannot fetch Nifty after all retries"); sys.exit(1)
 
     ftd_active, ftd_note = check_follow_through_day(nifty_d)
     market_trend = check_market_trend(nifty_d["Close"].values)
