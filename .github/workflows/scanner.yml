@@ -1,0 +1,55 @@
+name: NSE Live Scanner
+
+on:
+  schedule:
+    # Daily scan: 4:30 PM IST = 11:00 UTC, Mon-Fri
+    - cron: "0 11 * * 1-5"
+    # Hourly during market: 10:15 AM - 3:15 PM IST = 4:45-9:45 UTC
+    - cron: "45 4-9 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Run mode"
+        required: true
+        type: choice
+        options: [daily, hourly, test, healthcheck]
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+
+      # Determine mode from schedule or manual input
+      - name: Set mode
+        id: mode
+        run: |
+          if [ "${{ github.event.inputs.mode }}" != "" ]; then
+            echo "MODE=${{ github.event.inputs.mode }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event.schedule }}" = "0 11 * * 1-5" ]; then
+            echo "MODE=daily" >> $GITHUB_OUTPUT
+          else
+            echo "MODE=hourly" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run scanner
+        env:
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: python scanner.py --${{ steps.mode.outputs.MODE }} --telegram
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: scan-${{ steps.mode.outputs.MODE }}-${{ github.run_number }}
+          path: |
+            output/
+            logs/
+            signals.db
+          retention-days: 90
