@@ -888,9 +888,10 @@ def send_telegram_file(filepath, caption=""):
 def fmt_daily(df, market_trend, ftd):
     buys = df[df["recommendation"].str.startswith("BUY", na=False)]
     watch = df[df["recommendation"].str.startswith("WATCH", na=False)]
+    ftd_str = "YES \u2705" if ftd else "NO"
     lines = [
-        f"<b>\U0001f4ca NSE Scanner — {date.today()} {datetime.now().strftime('%H:%M')}</b>",
-        f"Market: {market_trend} | FTD: {'YES \u2705' if ftd else 'NO'}",
+        f"<b>\U0001f4ca NSE Scanner \u2014 {date.today()} {datetime.now().strftime('%H:%M')}</b>",
+        f"Market: {market_trend} | FTD: {ftd_str}",
         f"BUY: {len(buys)} | WATCH: {len(watch)}\n",
     ]
     for _, r in buys.head(15).iterrows():
