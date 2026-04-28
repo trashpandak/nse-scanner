@@ -268,39 +268,73 @@ def load_universe():
     log.warning("NSE URL blocked — using hardcoded Nifty-500 fallback")
     return NIFTY_500_FALLBACK_NS
 
-def _get_yf_session():
+# ── Yahoo Finance crumb-aware session ──────────────────────────────────────
+# Yahoo requires a crumb token tied to a browser-like session cookie.
+# On GitHub Actions IPs, plain requests get 401 "Invalid Crumb".
+# Fix: curl_cffi impersonates Chrome TLS fingerprint, warm up session once,
+# reuse it for all downloads. Reset session automatically on repeated 401s.
+
+_YF_SESSION = None
+_YF_SESSION_LOCK = Lock()
+
+def _build_session():
     try:
         from curl_cffi import requests as _cr
-        return _cr.Session(impersonate="chrome")
+        sess = _cr.Session(impersonate="chrome110")
+        # warm-up: hit Yahoo Finance to get cookies (crumb lives in cookie jar)
+        sess.get("https://finance.yahoo.com", timeout=15)
+        log.info("curl_cffi Chrome session ready")
+        return sess
     except ImportError:
+        log.warning("curl_cffi not installed — Yahoo may 401. pip install curl_cffi")
         return None
+    except Exception as e:
+        log.warning(f"Session build failed: {e}")
+        return None
+
+def _get_session():
+    global _YF_SESSION
+    with _YF_SESSION_LOCK:
+        if _YF_SESSION is None:
+            _YF_SESSION = _build_session()
+        return _YF_SESSION
+
+def _reset_session():
+    global _YF_SESSION
+    with _YF_SESSION_LOCK:
+        _YF_SESSION = None
 
 def dl(sym, interval="1d", period=PERIOD_DAILY):
     for attempt in range(DL_RETRIES):
         try:
-            sess = _get_yf_session()
-            kw = {"session": sess} if sess else {}
+            sess = _get_session()
+            kw = {"session": sess} if sess is not None else {}
             df = yf.download(sym, period=period, interval=interval,
                              auto_adjust=True, progress=False, timeout=20, **kw)
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
             df = df.dropna()
             return df if len(df) > 20 else None
-        except Exception:
-            if attempt < DL_RETRIES - 1:
+        except Exception as e:
+            msg = str(e)
+            if "401" in msg or "Crumb" in msg or "Unauthorized" in msg:
+                log.warning(f"401/Crumb on {sym} attempt {attempt+1} — reset session")
+                _reset_session()
+                time.sleep(5)
+            elif attempt < DL_RETRIES - 1:
                 time.sleep(DL_BACKOFF * (attempt + 1))
     return None
 
 def dl_fund(sym):
-    for attempt in range(2):
+    for attempt in range(DL_RETRIES):
         try:
-            sess = _get_yf_session()
-            kw = {"session": sess} if sess else {}
+            sess = _get_session()
+            kw = {"session": sess} if sess is not None else {}
             tk = yf.Ticker(sym, **kw)
             info = tk.info or {}
             if not info.get("marketCap"):
-                if attempt == 0:
-                    time.sleep(2)
+                if attempt < DL_RETRIES - 1:
+                    time.sleep(3)
                     continue
                 return {"_fund_ok": False}
             try:
@@ -318,9 +352,14 @@ def dl_fund(sym):
                 "longName": info.get("longName") or info.get("shortName"),
                 "next_earnings": str(ne) if ne else None,
             }
-        except Exception:
-            if attempt == 0:
-                time.sleep(2)
+        except Exception as e:
+            msg = str(e)
+            if "401" in msg or "Crumb" in msg or "Unauthorized" in msg:
+                log.warning(f"401/Crumb on fund {sym} attempt {attempt+1} — reset session")
+                _reset_session()
+                time.sleep(5)
+            elif attempt < DL_RETRIES - 1:
+                time.sleep(DL_BACKOFF * (attempt + 1))
     return {"_fund_ok": False}
 
 def cap_class(mc):
