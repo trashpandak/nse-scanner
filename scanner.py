@@ -310,8 +310,36 @@ def _reset_session():
     with _YF_SESSION_LOCK:
         _YF_SESSION = None
 
+# ── Global rate-limit backoff ──────────────────────────────────────────────
+# When ANY thread hits a 429, it sets _RATE_LIMITED_UNTIL to a future
+# timestamp. ALL threads check this before making requests and sleep
+# until it clears. This stops the thundering-herd problem where all 4
+# threads get rate-limited, wait 4 seconds each, then hammer Yahoo again.
+_RATE_LIMITED_UNTIL = 0.0
+_RATE_LIMIT_LOCK    = Lock()
+RATE_LIMIT_SLEEP    = 65.0   # seconds to back off after a 429
+
+def _set_rate_limit():
+    global _RATE_LIMITED_UNTIL
+    with _RATE_LIMIT_LOCK:
+        until = time.time() + RATE_LIMIT_SLEEP
+        if until > _RATE_LIMITED_UNTIL:
+            _RATE_LIMITED_UNTIL = until
+            log.warning(f"Rate limited — all threads backing off for {RATE_LIMIT_SLEEP:.0f}s")
+
+def _wait_for_rate_limit():
+    """Block the calling thread until the global rate-limit window clears."""
+    while True:
+        with _RATE_LIMIT_LOCK:
+            remaining = _RATE_LIMITED_UNTIL - time.time()
+        if remaining <= 0:
+            break
+        time.sleep(min(remaining, 5.0))   # wake up every 5s to recheck
+
 def dl(sym, interval="1d", period=PERIOD_DAILY):
     for attempt in range(DL_RETRIES):
+        # Block if another thread already hit a rate limit
+        _wait_for_rate_limit()
         try:
             sess = _get_session()
             kw = {"session": sess} if sess is not None else {}
@@ -327,12 +355,23 @@ def dl(sym, interval="1d", period=PERIOD_DAILY):
                 log.warning(f"401/Crumb on {sym} attempt {attempt+1} — reset session")
                 _reset_session()
                 time.sleep(5)
+            elif "429" in msg or "Rate" in msg or "Too Many" in msg or "RateLimit" in msg:
+                # Signal ALL threads to back off, then retry this stock
+                _set_rate_limit()
+                _wait_for_rate_limit()
+                # Don't count this as a used attempt — the stock was not skipped,
+                # just delayed. Reset session too as cookies may have expired.
+                _reset_session()
             elif attempt < DL_RETRIES - 1:
                 time.sleep(DL_BACKOFF * (attempt + 1))
+            else:
+                log.debug(f"dl({sym}) failed after {DL_RETRIES} attempts: {msg[:80]}")
     return None
 
 def dl_fund(sym):
     for attempt in range(DL_RETRIES):
+        # Block if another thread already hit a rate limit
+        _wait_for_rate_limit()
         try:
             sess = _get_session()
             kw = {"session": sess} if sess is not None else {}
@@ -364,6 +403,11 @@ def dl_fund(sym):
                 log.warning(f"401/Crumb on fund {sym} attempt {attempt+1} — reset session")
                 _reset_session()
                 time.sleep(5)
+            elif "429" in msg or "Rate" in msg or "Too Many" in msg or "RateLimit" in msg:
+                _set_rate_limit()
+                _wait_for_rate_limit()
+                _reset_session()
+                # Don't count against attempt — retry after backoff
             elif attempt < DL_RETRIES - 1:
                 time.sleep(DL_BACKOFF * (attempt + 1))
     return {"_fund_ok": False}
@@ -1054,7 +1098,7 @@ def fmt_daily(df, market_trend, ftd):
     watch = df[df["recommendation"].str.startswith("WATCH", na=False)]
     ftd_str = "YES \u2705" if ftd else "NO"
     lines = [
-        f"<b>\U0001f4ca NSE Scanner \u2014 {_today()} {_ist('%H:%M')}</b>",
+        f"<b>\U0001f4ca NSE Scanner \u2014 {_today()} {_ist("%H:%M")}</b>",
         f"Market: {market_trend} | FTD: {ftd_str}",
         f"BUY: {len(buys)} | WATCH: {len(watch)}\n",
     ]
@@ -1326,7 +1370,7 @@ def main():
     con = get_db()
     t0 = time.time()
     scan_label = "TEST" if args.test else "DAILY"
-    log.info(f"=== {scan_label} {_today()} {_ist('%H:%M')} ===")
+    log.info(f"=== {scan_label} {_today()} {_ist("%H:%M")} ===")
 
     stocks = load_universe()
     if args.test:
@@ -1445,7 +1489,7 @@ def main():
         # Send text alert
         send_telegram(fmt_daily(df, market_trend, ftd_active))
         # Send full CSV as file
-        caption = (f"NSE Scanner {_today()} {_ist('%H:%M')} | "
+        caption = (f"NSE Scanner {_today()} {_ist("%H:%M")} | "
                    f"BUY: {len(buys)} | WATCH: {len(watches)} | "
                    f"Total: {len(df)} signals | Market: {market_trend}")
         send_telegram_file(csv_path, caption)
