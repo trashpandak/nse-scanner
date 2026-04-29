@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-NSE Live Pattern Scanner v3.3
+NSE Live Pattern Scanner v3.4
 ==============================
 Fixes from v3.2 (what you saw failing in GitHub Actions):
   1. DB PERSISTENCE — GitHub Actions is stateless. Each run is a fresh container.
@@ -26,11 +26,17 @@ Usage:
 """
 
 import os, sys, json, time, sqlite3, argparse, logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 import warnings
 warnings.filterwarnings("ignore")
+
+# IST = UTC+5:30. GitHub Actions runs UTC — this makes all times correct.
+_IST = timezone(timedelta(hours=5, minutes=30))
+def _now():  return datetime.now(_IST)
+def _ist(fmt="%H:%M IST"): return _now().strftime(fmt)
+def _today(): return _now().date()
 
 import yfinance as yf
 import pandas as pd
@@ -56,7 +62,7 @@ logging.basicConfig(
     handlers=[
         logging.StreamHandler(),
         logging.FileHandler(
-            os.path.join(LOG_DIR, f"scan_{date.today()}.log"),
+            os.path.join(LOG_DIR, f"scan_{_today()}.log"),
             encoding="utf-8"),
     ],
 )
@@ -213,7 +219,7 @@ def save_watchlist(items):
     log.info(f"Watchlist saved: {len(items)} items → {WL_PATH}")
 
 def already_alerted_today(stock, pattern):
-    path = os.path.join(OUTPUT_DIR, f"alerts_{date.today()}.json")
+    path = os.path.join(OUTPUT_DIR, f"alerts_{_today()}.json")
     if not os.path.exists(path):
         return False
     try:
@@ -224,7 +230,7 @@ def already_alerted_today(stock, pattern):
         return False
 
 def mark_alert_sent(stock, pattern, status):
-    path = os.path.join(OUTPUT_DIR, f"alerts_{date.today()}.json")
+    path = os.path.join(OUTPUT_DIR, f"alerts_{_today()}.json")
     sent = []
     if os.path.exists(path):
         try:
@@ -233,7 +239,7 @@ def mark_alert_sent(stock, pattern, status):
         except Exception:
             pass
     sent.append({"stock": stock, "pattern": pattern, "status": status,
-                 "time": datetime.now().strftime("%H:%M")})
+                 "time": _ist("%H:%M")})
     with open(path, "w") as f:
         json.dump(sent, f)
 
@@ -490,6 +496,87 @@ def vsurge(vol, n, lb=20):
 # ================================================================
 # ALL 13 DETECTORS (compact but complete)
 # ================================================================
+# ================================================================
+# STOCKBEE RANKING METRICS
+# Bonde TI65, 2LYNCH score, composite rank
+# ================================================================
+
+def calc_ti65(c):
+    """
+    Bonde's Trend Intensity 65: avg7d / avg65d.
+    >= 1.05 = confirmed uptrend. Range 1.02-1.30 = sweet spot.
+    """
+    if len(c) < 65: return None
+    d = np.mean(c[-65:])
+    return round(float(np.mean(c[-7:]) / d), 4) if d > 0 else None
+
+def lynch_score(c, v):
+    """
+    2LYNCH checklist (Bonde/Stockbee). Returns 0-6.
+    2 = Not up 2 consecutive days before breakout
+    L = Linear orderly prior move
+    Y = Young trend (TI65 in 1.02-1.30)
+    N = Narrow/Negative day immediately before breakout
+    C = Consolidation quality (Bollinger squeeze)
+    H = Closing near High today
+    """
+    n = len(c); score = 0
+    if n < 10: return score
+    # 2: not up 2 days in a row before TODAY
+    if n >= 4 and not (c[-2] > c[-3] and c[-3] > c[-4]):
+        score += 1
+    # L: linear = low coefficient of variation of daily moves
+    if n >= 21:
+        moves = np.abs(np.diff(c[-21:]))
+        m_mean = np.mean(moves)
+        if m_mean > 0 and np.std(moves) / m_mean < 1.2:
+            score += 1
+    # Y: young trend
+    ti = calc_ti65(c)
+    if ti is not None and 1.02 <= ti <= 1.30:
+        score += 1
+    # N: narrow (<1%) or negative day before breakout
+    if n >= 3 and c[-3] > 0:
+        pm = (c[-2] - c[-3]) / c[-3]
+        if abs(pm) < 0.01 or pm < 0:
+            score += 1
+    # C: Bollinger band squeeze (tight consolidation)
+    if n >= 20:
+        bb = np.std(c[-20:]) / (np.mean(c[-20:]) + 1e-9)
+        if bb < 0.04:
+            score += 1
+    # H: closing near high (close strength >= 60%)
+    if n >= 5:
+        hi5 = np.max(c[-5:])
+        lo5 = np.min(c[-5:])
+        rng = hi5 - lo5
+        cs = (c[-1] - lo5) / rng if rng > 0 else 0.5
+        if cs >= 0.60:
+            score += 1
+    return score
+
+def composite_rank(row):
+    """
+    Composite score 0-100 for sorting signals.
+    Weights: CANSLIM(25) + 2LYNCH(20) + TI65(15) + VolSurge(15) + Quality(15) + ADR(10)
+    """
+    s = 0
+    cs = row.get("canslim_score", 0) or 0
+    dc = row.get("data_completeness", 7) or 7
+    s += (cs / max(dc, 1)) * 25           # CANSLIM (normalised to data available)
+    ls = row.get("lynch_score_val", 0) or 0
+    s += (ls / 6) * 20                     # 2LYNCH
+    ti = row.get("ti65", 1.0) or 1.0
+    ti_score = min(max(ti - 1.0, 0), 0.30) / 0.30
+    s += ti_score * 15                     # TI65 (capped at +30%)
+    vs = row.get("vol_surge", 1.0) or 1.0
+    s += min(vs / 3.0, 1.0) * 15          # vol surge (capped at 3x)
+    q = row.get("quality", 0) or 0
+    s += min(abs(q), 1.0) * 15            # pattern quality
+    adr = row.get("adr_pct", 2.0) or 2.0
+    s += min(adr / 5.0, 1.0) * 10         # ADR (capped at 5%)
+    return round(s, 1)
+
 def det_cup(c, v):
     n = len(c)
     if n < 50: return None
@@ -711,25 +798,48 @@ def det_fwedge(c, v):
                 m1=round(h_sl,4), m2=round(l_sl,4), m3=len(highs), m4=len(lows), m5=None)
 
 def det_momburst(c, v):
+    """Stockbee/Bonde exact scan: c/c1>1.04 AND v>v1 AND liquid.
+    Plus TI65 uptrend + 2LYNCH narrow-day pre-burst."""
     n = len(c)
-    if n<30: return None
-    for lb in [5,7,10]:
-        if n<lb+15: continue
-        ret=(c[-1]-c[-lb])/c[-lb]
-        if ret<0.08: continue
-        ps,pe=max(0,n-lb-20),n-lb
-        if pe-ps<10: continue
-        pre_c=c[ps:pe]
-        pre_atr=np.mean(np.abs(np.diff(pre_c))/pre_c[:-1])
-        all_atr=np.mean(np.abs(np.diff(c[:pe]))/c[:pe][:-1]) if pe>2 else pre_atr
-        if pre_atr>all_atr*1.1: continue
-        if c[-1]<np.mean(c[-min(50,n):]): continue
-        vs=vsurge(v,n); vol_ok=vs is not None and vs>=1.2
-        return dict(pattern="MomBurst", status="Burst Active" if vol_ok else "Burst (low vol)",
-                    quality=round(ret,3), bz=round(float(c[-1]),2), bottom=round(float(c[-lb]),2),
-                    last=round(float(c[-1]),2), vs=vs, m1=round(ret*100,2),
-                    m2=round(pre_atr*100,4), m3=lb, m4=None, m5=None)
-    return None
+    if n < 30 or v is None: return None
+    # Bonde primary: today gain > 4%
+    if c[-2] <= 0: return None
+    day_gain = (c[-1] - c[-2]) / c[-2]
+    if day_gain < 0.04: return None
+    # Bonde: today volume > yesterday volume
+    if v[-1] <= v[-2]: return None
+    # Liquidity gate: avg 20d turnover > 1 Cr INR
+    if n >= 20:
+        avg_to = np.mean(v[-20:]) * np.mean(c[-20:]) / 1e7
+        if avg_to < 1.0: return None
+    # Must be in uptrend (above 50-MA)
+    ma50 = np.mean(c[-min(50, n):])
+    if c[-1] < ma50: return None
+    # TI65: avg 7d / avg 65d > 1.0 (Stockbee trend intensity)
+    ti65 = None
+    if n >= 65:
+        ti65 = np.mean(c[-7:]) / np.mean(c[-65:]) if np.mean(c[-65:]) > 0 else 0
+        if ti65 < 1.0: return None
+    # 2LYNCH N: pre-burst day should be narrow or negative
+    n_flag = 0
+    if n >= 3 and c[-3] > 0:
+        prev_range = abs(c[-2] - c[-3]) / c[-3]
+        n_flag = 1 if prev_range < 0.02 else 0
+    # Vol surge vs yesterday (quality metric)
+    vs_yest = round(float(v[-1] / v[-2]), 2) if v[-2] > 0 else 1.0
+    vs_20d = vsurge(v, n)
+    quality = round(day_gain * vs_yest, 4)
+    return dict(
+        pattern="MomBurst", status="Burst Active",
+        quality=quality, bz=round(float(c[-1]), 2),
+        bottom=round(float(c[-2]), 2), last=round(float(c[-1]), 2),
+        vs=vs_20d,
+        m1=round(day_gain * 100, 2),   # today gain %
+        m2=round(vs_yest, 2),           # vol vs yesterday
+        m3=round(ti65, 3) if ti65 else None,  # TI65
+        m4=float(n_flag),               # narrow pre-burst day
+        m5=round((c[-1]-c[-5])/c[-5]*100, 2) if n >= 5 and c[-5] > 0 else None,
+    )
 
 def det_epivot(c, v, o=None):
     n = len(c)
@@ -744,19 +854,34 @@ def det_epivot(c, v, o=None):
                 last=round(float(c[-1]),2), vs=vs, m1=round(gap*100,2), m2=vs, m3=None, m4=None, m5=None)
 
 def det_ppivot(c, v):
+    """
+    Pocket Pivot (Morales/Kacher) — tightened for Indian markets:
+    - Up 1%+ today
+    - Today vol > max down-day vol of last 10 sessions (by 1.3x)
+    - TI65 uptrend
+    - Volume above 50d average
+    """
     n = len(c)
-    if n<12 or v is None: return None
-    if c[-1]<=c[-2]: return None
-    max_dv=0.0
-    for i in range(2,min(12,n)):
-        if i<n and c[-i]<c[-i-1]: max_dv=max(max_dv,v[-i])
-    if max_dv==0 or v[-1]<=max_dv: return None
-    if c[-1]<np.mean(c[-min(50,n):]): return None
-    vs=round(float(v[-1]/max_dv),2)
+    if n < 15 or v is None or len(v) < 15: return None
+    day_gain = (c[-1] - c[-2]) / c[-2] if c[-2] > 0 else 0
+    if day_gain < 0.01: return None                 # must be up 1%+ today
+    max_dv = 0.0
+    for i in range(2, min(12, n)):
+        if c[-i] < c[-i-1]: max_dv = max(max_dv, v[-i])
+    if max_dv == 0 or v[-1] <= max_dv * 1.3: return None   # 1.3x threshold
+    if c[-1] < np.mean(c[-min(50,n):]): return None
+    ti = calc_ti65(c)
+    if ti is not None and ti < 1.01: return None
+    vol_ma50 = np.mean(v[-min(50,n):])
+    if v[-1] < vol_ma50: return None
+    vs = round(float(v[-1] / max_dv), 2)
     return dict(pattern="PocketPivot", status="Pocket Pivot",
-                quality=round(vs,2), bz=round(float(c[-2]),2), bottom=round(float(c[-2]),2),
-                last=round(float(c[-1]),2), vs=vs,
-                m1=round((c[-1]-c[-2])/c[-2]*100,2), m2=vs, m3=None, m4=None, m5=None)
+                quality=round(vs * day_gain * 10, 3),
+                bz=round(float(c[-2]), 2), bottom=round(float(c[-2]), 2),
+                last=round(float(c[-1]), 2), vs=vs,
+                m1=round(day_gain * 100, 2), m2=vs,
+                m3=round(ti, 4) if ti else None,
+                m4=round(v[-1] / vol_ma50, 2), m5=None)
 
 def det_anticipation(c, v):
     n = len(c)
@@ -870,7 +995,7 @@ def scan_stock(sym, nifty_d, ftd_active, market_trend,
             f"ADR={adr}%" if adr >= 3.5 else None,
         ]))
         rows.append(dict(
-            scan_date=str(date.today()), scan_time=datetime.now().strftime("%H:%M"),
+            scan_date=str(_today()), scan_time=_ist("%H:%M"),
             scan_mode="daily", stock=sym.replace(".NS",""), name=fund.get("longName"),
             sector=fund.get("sector"), cap_class=cc, cap_cr=cr,
             pattern=best["pattern"], timeframe="Daily", status=best["status"],
@@ -929,7 +1054,7 @@ def fmt_daily(df, market_trend, ftd):
     watch = df[df["recommendation"].str.startswith("WATCH", na=False)]
     ftd_str = "YES \u2705" if ftd else "NO"
     lines = [
-        f"<b>\U0001f4ca NSE Scanner \u2014 {date.today()} {datetime.now().strftime('%H:%M')}</b>",
+        f"<b>\U0001f4ca NSE Scanner \u2014 {_today()} {_ist("%H:%M")}</b>",
         f"Market: {market_trend} | FTD: {ftd_str}",
         f"BUY: {len(buys)} | WATCH: {len(watch)}\n",
     ]
@@ -949,14 +1074,22 @@ def fmt_daily(df, market_trend, ftd):
 
 def fmt_halfhour(alerts):
     if not alerts: return None
-    lines = [f"<b>\u26a1 30-min Update — {datetime.now().strftime('%H:%M IST')}</b>\n"]
+    active = sum(1 for a in alerts if a.get("status") in ("BREAKOUT TRIGGERED","Burst Active"))
+    lines = [f"<b>\u26a1 30-min — {_ist()}</b>  {len(alerts)} signals ({active} active)\n"]
     for a in alerts:
-        em = ("\U0001f6a8" if "BREAKOUT" in a["status"]
-              else "\U0001f525" if "Burst" in a["status"]
+        em = ("\U0001f6a8" if "BREAKOUT" in a.get("status","")
+              else "\U0001f525" if "Burst Active" == a.get("status","")
+              else "\U0001f7e1" if "Pivot" in a.get("status","")
               else "\u26a0\ufe0f")
-        vs = f" | Vol {a['vs']}x" if a.get("vs") else ""
-        lines.append(f"{em} <b>{a['stock']}</b> — {a['pattern']} — {a['status']}\n"
-                     f"   CMP \u20b9{a['cmp']} | BZ \u20b9{a.get('bz','?')}{vs}")
+        vs = f" Vol {a['vs']}x" if a.get("vs") else ""
+        sl = f" | SL \u20b9{a['stop']}" if a.get("stop") else ""
+        t1 = f" | T1 \u20b9{a['t1']}" if a.get("t1") else ""
+        rr = f" | RR {a['rr']}x" if a.get("rr") else ""
+        cs = f" | CS {a['canslim']}/7" if a.get("canslim") is not None else ""
+        lines.append(
+            f"{em} <b>{a['stock']}</b> — {a['pattern']} — {a['status']}\n"
+            f"   \u20b9{a['cmp']} | BZ \u20b9{a.get('bz','?')}{vs}{sl}{t1}{rr}{cs}"
+        )
     return "\n".join(lines)
 
 # ================================================================
@@ -1005,14 +1138,34 @@ def halfhour_check(nifty_d):
             except Exception: pass
 
     log.info(f"Quick-scan: {len(quick_rows)} signals")
+
+    # Build DataFrame of all signals for CSV
+    quick_df = None
+    if quick_rows:
+        quick_df = (pd.DataFrame(quick_rows)
+                    .drop_duplicates(subset=["stock","pattern"])
+                    .sort_values("quality", ascending=False)
+                    .reset_index(drop=True))
+        quick_df["scan_time_ist"] = _ist()
+
     for sig in quick_rows:
         if not already_alerted_today(sig["stock"], sig["pattern"]):
-            alerts.append({"stock": sig["stock"], "pattern": sig["pattern"],
-                           "status": sig["status"], "cmp": sig["cmp"],
-                           "bz": sig.get("breakout_zone"), "vs": sig.get("vol_surge")})
+            alerts.append({
+                "stock": sig["stock"], "pattern": sig["pattern"],
+                "status": sig["status"], "cmp": sig["cmp"],
+                "bz": sig.get("breakout_zone"), "vs": sig.get("vol_surge"),
+                "canslim": sig.get("canslim_score"),
+                "stop": sig.get("stop_loss"),
+                "t1": sig.get("target_1"), "rr": sig.get("risk_reward"),
+            })
             mark_alert_sent(sig["stock"], sig["pattern"], sig["status"])
 
-    return alerts
+    # Sort: BREAKOUT first, Burst Active, Pocket Pivot, others
+    prio = lambda a: (0 if "BREAKOUT" in a.get("status","") else
+                      1 if "Burst Active" == a.get("status","") else
+                      2 if "Pivot" in a.get("status","") else 3)
+    alerts.sort(key=prio)
+    return alerts, quick_df
 
 # ================================================================
 # DASHBOARD
@@ -1071,7 +1224,7 @@ td{padding:5px 10px;border-bottom:1px solid #1e293b}tr:hover{background:#1e293b}
     def index():
         con = get_db()
         rows = db_query(con, "SELECT * FROM signals WHERE scan_date=? ORDER BY recommendation, canslim_score DESC",
-                        (str(date.today()),))
+                        (str(_today()),))
         runs = db_query(con, "SELECT * FROM runs ORDER BY id DESC LIMIT 1")
         wl = load_watchlist()
         con.close()
@@ -1148,13 +1301,24 @@ def main():
     # ---- 30-MINUTE MODE ----
     if args.halfhour:
         t0 = time.time()
-        log.info(f"=== 30-min scan {datetime.now().strftime('%H:%M IST')} ===")
-        alerts = halfhour_check(nifty_d)
+        log.info(f"=== 30-min scan {_ist()} ===")
+        alerts, quick_df = halfhour_check(nifty_d)
         log.info(f"{len(alerts)} alerts | {time.time()-t0:.0f}s")
-        if alerts and args.telegram:
-            msg = fmt_halfhour(alerts)
-            if msg: send_telegram(msg)
-        elif not alerts:
+        if alerts:
+            if args.telegram:
+                msg = fmt_halfhour(alerts[:20])
+                if msg: send_telegram(msg)
+                # Send CSV of all quick-scan signals
+                if quick_df is not None and len(quick_df):
+                    csv_path = os.path.join(OUTPUT_DIR,
+                        f"halfhour_{_today()}_{_ist('%H%M')}.csv")
+                    quick_df.to_csv(csv_path, index=False)
+                    n_active = sum(1 for a in alerts
+                                   if a.get("status") in ("BREAKOUT TRIGGERED","Burst Active"))
+                    cap = (f"30-min {_ist()} | {len(quick_df)} signals | "
+                           f"{n_active} active | Market: {market_trend if nifty_d is not None else '?'}")
+                    send_telegram_file(csv_path, cap)
+        else:
             log.info("No new signals this round")
         return
 
@@ -1162,7 +1326,7 @@ def main():
     con = get_db()
     t0 = time.time()
     scan_label = "TEST" if args.test else "DAILY"
-    log.info(f"=== {scan_label} {date.today()} {datetime.now().strftime('%H:%M')} ===")
+    log.info(f"=== {scan_label} {_today()} {_ist("%H:%M")} ===")
 
     stocks = load_universe()
     if args.test:
@@ -1198,11 +1362,26 @@ def main():
     if not all_rows:
         log.info("No signals."); con.close(); return
 
-    df = (pd.DataFrame(all_rows)
-          .drop_duplicates(subset=["stock","pattern","timeframe"])
-          .sort_values(["recommendation","canslim_score","quality"],
-                       ascending=[True,False,False])
-          .reset_index(drop=True))
+    raw = (pd.DataFrame(all_rows)
+           .drop_duplicates(subset=["stock","pattern","timeframe"])
+           .reset_index(drop=True))
+
+    def _score(r):
+        cs  = (r.get("canslim_score") or 0)
+        q   = (r.get("quality") or 0) * 100
+        vs  = min(r.get("vol_surge") or 1, 5) / 5
+        rr  = min(r.get("risk_reward") or 0, 5) / 5
+        rw  = {"BUY — strong":3,"BUY — moderate":2,
+               "WATCH — await breakout":1.5,"WATCH — mixed":1}.get(r.get("recommendation",""),0)
+        ti  = 0.3 if (r.get("m3") or 0) >= 1.05 else 0   # TI65 bonus
+        nb  = 0.2 if (r.get("m4") or 0) >= 1.0 else 0    # narrow-day bonus
+        cb  = 0.5 if r.get("converging") else 0            # convergence bonus
+        s2  = 0.3 if "Stage2" in str(r.get("stage","")) else 0
+        vd  = 0.2 if r.get("vol_dryup") else 0
+        return cs*0.30 + q*0.20 + rw*0.25 + vs*0.10 + rr*0.05 + ti+nb+cb+s2+vd
+
+    raw["_score"] = raw.apply(_score, axis=1)
+    df = raw.sort_values("_score", ascending=False).drop(columns=["_score"]).reset_index(drop=True)
 
     # Save to DB
     db_execmany(con, """INSERT INTO signals
@@ -1225,7 +1404,7 @@ def main():
             "stock": r["stock"], "name": r.get("name"), "sector": r.get("sector"),
             "cap_class": r.get("cap_class"), "pattern": r["pattern"],
             "breakout_zone": r.get("breakout_zone"), "stop_loss": r.get("stop_loss"),
-            "status": r.get("status"), "added_date": str(date.today()),
+            "status": r.get("status"), "added_date": str(_today()),
         })
     # Merge with existing (keep entries from last 30 days, dedup by stock+pattern)
     existing_wl = {f"{w['stock']}_{w['pattern']}": w for w in load_watchlist()}
@@ -1238,11 +1417,11 @@ def main():
     db_exec(con, """INSERT INTO runs
         (scan_date,scan_time,mode,stocks_total,stocks_ok,signals,buys,elapsed_sec)
         VALUES (?,?,?,?,?,?,?,?)""",
-            (str(date.today()), datetime.now().strftime("%H:%M"), scan_label,
+            (str(_today()), _ist("%H:%M"), scan_label,
              len(stocks), ok_count, len(df), len(buys), round(elapsed,1)))
 
     # Save CSV
-    csv_path = os.path.join(OUTPUT_DIR, f"scan_{date.today()}_{datetime.now().strftime('%H%M')}.csv")
+    csv_path = os.path.join(OUTPUT_DIR, f"scan_{_today()}_{datetime.now().strftime('%H%M')}.csv")
     df.to_csv(csv_path, index=False)
     log.info(f"CSV saved → {csv_path}")
 
@@ -1266,7 +1445,7 @@ def main():
         # Send text alert
         send_telegram(fmt_daily(df, market_trend, ftd_active))
         # Send full CSV as file
-        caption = (f"NSE Scanner {date.today()} {datetime.now().strftime('%H:%M')} | "
+        caption = (f"NSE Scanner {_today()} {_ist("%H:%M")} | "
                    f"BUY: {len(buys)} | WATCH: {len(watches)} | "
                    f"Total: {len(df)} signals | Market: {market_trend}")
         send_telegram_file(csv_path, caption)
