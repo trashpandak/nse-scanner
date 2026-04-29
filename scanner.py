@@ -1054,7 +1054,7 @@ def fmt_daily(df, market_trend, ftd):
     watch = df[df["recommendation"].str.startswith("WATCH", na=False)]
     ftd_str = "YES \u2705" if ftd else "NO"
     lines = [
-        f"<b>\U0001f4ca NSE Scanner \u2014 {_today()} {_ist("%H:%M")}</b>",
+        f"<b>\U0001f4ca NSE Scanner \u2014 {_today()} {_ist('%H:%M')}</b>",
         f"Market: {market_trend} | FTD: {ftd_str}",
         f"BUY: {len(buys)} | WATCH: {len(watch)}\n",
     ]
@@ -1326,7 +1326,7 @@ def main():
     con = get_db()
     t0 = time.time()
     scan_label = "TEST" if args.test else "DAILY"
-    log.info(f"=== {scan_label} {_today()} {_ist("%H:%M")} ===")
+    log.info(f"=== {scan_label} {_today()} {_ist('%H:%M')} ===")
 
     stocks = load_universe()
     if args.test:
@@ -1445,7 +1445,7 @@ def main():
         # Send text alert
         send_telegram(fmt_daily(df, market_trend, ftd_active))
         # Send full CSV as file
-        caption = (f"NSE Scanner {_today()} {_ist("%H:%M")} | "
+        caption = (f"NSE Scanner {_today()} {_ist('%H:%M')} | "
                    f"BUY: {len(buys)} | WATCH: {len(watches)} | "
                    f"Total: {len(df)} signals | Market: {market_trend}")
         send_telegram_file(csv_path, caption)
