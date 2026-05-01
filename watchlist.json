@@ -789,7 +789,7 @@
     "breakout_zone": 1580.5,
     "stop_loss": 1071.75,
     "status": "Breakout Ready",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "JAYNECOIND",
@@ -1812,7 +1812,7 @@
     "breakout_zone": 2702.3,
     "stop_loss": 2594.21,
     "status": "Burst Active",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "SUDEEPPHRM",
@@ -1911,7 +1911,7 @@
     "breakout_zone": 1552.25,
     "stop_loss": 1128.69,
     "status": "Breakout Ready",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "FEDFINA",
@@ -2043,7 +2043,7 @@
     "breakout_zone": 328.25,
     "stop_loss": 235.27,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "FEDFINA",
@@ -2153,7 +2153,7 @@
     "breakout_zone": 435.62,
     "stop_loss": 381.94,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "MODIS",
@@ -2406,7 +2406,7 @@
     "breakout_zone": 1707.98,
     "stop_loss": 1473.04,
     "status": "Breakout Ready",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "APLAPOLLO",
@@ -2505,7 +2505,7 @@
     "breakout_zone": 529.69,
     "stop_loss": 466.42,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "UJJIVANSFB",
@@ -2670,7 +2670,7 @@
     "breakout_zone": 1903.5,
     "stop_loss": 1452.48,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "AZAD",
@@ -2692,7 +2692,7 @@
     "breakout_zone": 606.98,
     "stop_loss": 443.77,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "EQUITASBNK",
@@ -2806,7 +2806,7 @@
   },
   {
     "stock": "GVT&D",
-    "name": "GE Vernova T&D India Ltd",
+    "name": "GE Vernova T&D India Limited",
     "sector": "Industrials",
     "cap_class": "Large",
     "pattern": "DoubleBottom",
@@ -3059,7 +3059,7 @@
   },
   {
     "stock": "GVT&D",
-    "name": "GE Vernova T&D India Ltd",
+    "name": "GE Vernova T&D India Limited",
     "sector": "Industrials",
     "cap_class": "Large",
     "pattern": "BullFlag",
@@ -3077,7 +3077,7 @@
     "breakout_zone": 4156.3,
     "stop_loss": 3870.3,
     "status": "Flag Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "HONASA",
@@ -3253,7 +3253,7 @@
     "breakout_zone": 3087.6,
     "stop_loss": 2690.59,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "LENSKART",
@@ -3462,7 +3462,7 @@
     "breakout_zone": 598.57,
     "stop_loss": 507.81,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "NEPHROPLUS",
@@ -3477,7 +3477,7 @@
   },
   {
     "stock": "GVT&D",
-    "name": "GE Vernova T&D India Ltd",
+    "name": "GE Vernova T&D India Limited",
     "sector": "Industrials",
     "cap_class": "Large",
     "pattern": "InvHS",
@@ -3517,7 +3517,7 @@
     "breakout_zone": 544.45,
     "stop_loss": 490.48,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "STAR",
@@ -4034,7 +4034,7 @@
     "breakout_zone": 1808.8,
     "stop_loss": 1568.1,
     "status": "Breakout Ready",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "BSE",
@@ -4265,7 +4265,7 @@
     "breakout_zone": 1808.8,
     "stop_loss": 1568.1,
     "status": "Breakout Ready",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "SAILIFE",
@@ -4485,7 +4485,7 @@
     "breakout_zone": 989.08,
     "stop_loss": 781.24,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "FIEMIND",
@@ -4925,7 +4925,7 @@
     "breakout_zone": 2702.3,
     "stop_loss": 2289.01,
     "status": "Breakout Ready",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "CARTRADE",
@@ -4969,7 +4969,7 @@
     "breakout_zone": 1284.16,
     "stop_loss": 1017.63,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "KMEW",
@@ -4980,7 +4980,7 @@
     "breakout_zone": 1801.1,
     "stop_loss": 1470.03,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "NGLFINE",
@@ -5244,7 +5244,7 @@
     "breakout_zone": 145.41,
     "stop_loss": 127.9,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "ABCAPITAL",
@@ -5321,7 +5321,7 @@
     "breakout_zone": 1161.4,
     "stop_loss": 780.75,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "JNKINDIA",
@@ -5442,7 +5442,7 @@
     "breakout_zone": 530.63,
     "stop_loss": 344.3,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "THELEELA",
@@ -5486,7 +5486,7 @@
     "breakout_zone": 297.09,
     "stop_loss": 205.97,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "SAMBHV",
@@ -5530,7 +5530,7 @@
     "breakout_zone": 426.55,
     "stop_loss": 359.0,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "ETERNAL",
@@ -5552,7 +5552,7 @@
     "breakout_zone": 75.73,
     "stop_loss": 52.79,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "POWERINDIA",
@@ -5673,7 +5673,7 @@
     "breakout_zone": 587.7,
     "stop_loss": 429.56,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "ATULAUTO",
@@ -5717,7 +5717,7 @@
     "breakout_zone": 1926.9,
     "stop_loss": 1366.39,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "HEG",
@@ -5937,7 +5937,7 @@
     "breakout_zone": 408.22,
     "stop_loss": 287.13,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "LEMERITE",
@@ -5959,7 +5959,7 @@
     "breakout_zone": 403.85,
     "stop_loss": 365.79,
     "status": "Flag Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "MAHLOG",
@@ -6036,7 +6036,7 @@
     "breakout_zone": 127.6,
     "stop_loss": 96.68,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "PGEL",
@@ -6146,7 +6146,7 @@
     "breakout_zone": 491.3,
     "stop_loss": 457.74,
     "status": "Flag Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "DATAPATTNS",
@@ -6190,7 +6190,7 @@
     "breakout_zone": 3959.2,
     "stop_loss": 3063.07,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "CPPLUS",
@@ -6333,7 +6333,7 @@
     "breakout_zone": 458.45,
     "stop_loss": 338.63,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "APCOTEXIND",
@@ -6366,7 +6366,7 @@
     "breakout_zone": 9846.92,
     "stop_loss": 7444.79,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "DEEPINDS",
@@ -6410,7 +6410,7 @@
     "breakout_zone": 6262.5,
     "stop_loss": 4822.35,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "MAHABANK",
@@ -6751,7 +6751,7 @@
     "breakout_zone": 578.0,
     "stop_loss": 429.56,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "ISGEC",
@@ -6839,7 +6839,7 @@
     "breakout_zone": 359.25,
     "stop_loss": 260.59,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "SANGAMIND",
@@ -6883,7 +6883,7 @@
     "breakout_zone": 1510.8,
     "stop_loss": 1439.29,
     "status": "Flag Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "KRN",
@@ -6982,7 +6982,7 @@
     "breakout_zone": 465.4,
     "stop_loss": 381.94,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "HARSHA",
@@ -7004,7 +7004,7 @@
     "breakout_zone": 110.17,
     "stop_loss": 90.68,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "TIPSMUSIC",
@@ -7136,7 +7136,7 @@
     "breakout_zone": 2455.7,
     "stop_loss": 1988.26,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "SCHAEFFLER",
@@ -7312,7 +7312,7 @@
     "breakout_zone": 446.33,
     "stop_loss": 310.21,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "CHENNPETRO",
@@ -7334,7 +7334,7 @@
     "breakout_zone": 426.55,
     "stop_loss": 356.52,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "ISGEC",
@@ -7631,7 +7631,7 @@
     "breakout_zone": 1085.7,
     "stop_loss": 887.84,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "MAHLOG",
@@ -7774,7 +7774,7 @@
     "breakout_zone": 1635.79,
     "stop_loss": 1405.99,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "ANDHRSUGAR",
@@ -7804,10 +7804,10 @@
     "sector": "Industrials",
     "cap_class": "Small",
     "pattern": "BullFlag",
-    "breakout_zone": 1081.0,
+    "breakout_zone": 1077.55,
     "stop_loss": 1034.7,
     "status": "Flag Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "TITAN",
@@ -7939,7 +7939,7 @@
     "breakout_zone": 26.95,
     "stop_loss": 23.47,
     "status": "Breakout Ready",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "ADVAIT",
@@ -8038,7 +8038,7 @@
     "breakout_zone": 68.56,
     "stop_loss": 53.58,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "MANGLMCEM",
@@ -8434,7 +8434,7 @@
     "breakout_zone": 404.7,
     "stop_loss": 344.3,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "MAHLOG",
@@ -8544,7 +8544,7 @@
     "breakout_zone": 146.41,
     "stop_loss": 122.43,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "NGLFINE",
@@ -8676,7 +8676,7 @@
     "breakout_zone": 264.11,
     "stop_loss": 247.59,
     "status": "Flag Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "THANGAMAYL",
@@ -8687,7 +8687,7 @@
     "breakout_zone": 4278.4,
     "stop_loss": 3675.72,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "CARERATING",
@@ -8753,7 +8753,7 @@
     "breakout_zone": 1324.85,
     "stop_loss": 1017.63,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "ETERNAL",
@@ -8852,7 +8852,7 @@
     "breakout_zone": 71.63,
     "stop_loss": 61.01,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "EMCURE",
@@ -8918,7 +8918,7 @@
     "breakout_zone": 1740.5,
     "stop_loss": 1399.81,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "SFL",
@@ -8940,7 +8940,7 @@
     "breakout_zone": 669.05,
     "stop_loss": 582.1,
     "status": "Flag Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "TITAN",
@@ -8962,7 +8962,7 @@
     "breakout_zone": 8978.87,
     "stop_loss": 7658.57,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "ISGEC",
@@ -9094,7 +9094,7 @@
     "breakout_zone": 504.05,
     "stop_loss": 426.22,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "SCHAEFFLER",
@@ -9182,7 +9182,7 @@
     "breakout_zone": 4118.8,
     "stop_loss": 3064.04,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "BALRAMCHIN",
@@ -9314,7 +9314,7 @@
     "breakout_zone": 73.18,
     "stop_loss": 69.94,
     "status": "Flag Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "PIXTRANS",
@@ -9435,7 +9435,7 @@
     "breakout_zone": 11791.0,
     "stop_loss": 11220.96,
     "status": "Flag Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "PASHUPATI",
@@ -9512,7 +9512,7 @@
     "breakout_zone": 25.04,
     "stop_loss": 24.0,
     "status": "Breakout Ready",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "WABAG",
@@ -9523,7 +9523,7 @@
     "breakout_zone": 1510.8,
     "stop_loss": 1280.5,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "CENTRALBK",
@@ -9677,7 +9677,7 @@
     "breakout_zone": 75.43,
     "stop_loss": 65.16,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "AETHER",
@@ -9721,7 +9721,7 @@
     "breakout_zone": 1560.55,
     "stop_loss": 1345.58,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "EMMVEE",
@@ -9765,7 +9765,7 @@
     "breakout_zone": 1833.8,
     "stop_loss": 1625.53,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "PROZONER",
@@ -9787,7 +9787,7 @@
     "breakout_zone": 686.85,
     "stop_loss": 555.03,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "SOMANYCERA",
@@ -9941,7 +9941,7 @@
     "breakout_zone": 25.11,
     "stop_loss": 23.5,
     "status": "Breakout Ready",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "CEATLTD",
@@ -10040,7 +10040,7 @@
     "breakout_zone": 111.54,
     "stop_loss": 97.42,
     "status": "Breakout Ready",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "ITCHOTELS",
@@ -10117,7 +10117,7 @@
     "breakout_zone": 434.95,
     "stop_loss": 381.94,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "CEATLTD",
@@ -10359,7 +10359,7 @@
     "breakout_zone": 277.25,
     "stop_loss": 235.38,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "ANURAS",
@@ -10392,7 +10392,7 @@
     "breakout_zone": 123.99,
     "stop_loss": 110.82,
     "status": "Flag Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "EMCURE",
@@ -10491,7 +10491,7 @@
     "breakout_zone": 412.45,
     "stop_loss": 375.88,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "SENORES",
@@ -10667,7 +10667,7 @@
     "breakout_zone": 5480.5,
     "stop_loss": 4898.5,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "ENGINERSIN",
@@ -10755,7 +10755,7 @@
     "breakout_zone": 216.43,
     "stop_loss": 192.61,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "UTLSOLAR",
@@ -10843,7 +10843,7 @@
     "breakout_zone": 3986.3,
     "stop_loss": 3828.11,
     "status": "Flag Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "FEDFINA",
@@ -10942,7 +10942,7 @@
     "breakout_zone": 5247.2,
     "stop_loss": 5042.06,
     "status": "Flag Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "CARERATING",
@@ -11008,7 +11008,7 @@
     "breakout_zone": 29.7,
     "stop_loss": 28.66,
     "status": "Breakout Ready",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "ARIES",
@@ -11074,7 +11074,7 @@
     "breakout_zone": 787.6,
     "stop_loss": 653.0,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "HAVELLS",
@@ -11228,7 +11228,7 @@
     "breakout_zone": 5798.0,
     "stop_loss": 4659.88,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "THELEELA",
@@ -11239,7 +11239,7 @@
     "breakout_zone": 429.05,
     "stop_loss": 407.21,
     "status": "Flag Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "ABCAPITAL",
@@ -11371,7 +11371,7 @@
     "breakout_zone": 29.7,
     "stop_loss": 23.5,
     "status": "Breakout Ready",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "LUMAXTECH",
@@ -11437,7 +11437,7 @@
     "breakout_zone": 1806.6,
     "stop_loss": 1716.32,
     "status": "Flag Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "MUTHOOTFIN",
@@ -11459,7 +11459,7 @@
     "breakout_zone": 123.99,
     "stop_loss": 110.82,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "LTF",
@@ -11536,7 +11536,7 @@
     "breakout_zone": 406.6,
     "stop_loss": 388.29,
     "status": "Flag Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "AETHER",
@@ -11602,7 +11602,7 @@
     "breakout_zone": 1564.1,
     "stop_loss": 1373.71,
     "status": "Flag Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "CARTRADE",
@@ -11767,7 +11767,7 @@
     "breakout_zone": 8670.5,
     "stop_loss": 6575.14,
     "status": "Breakout Ready",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "RADICO",
@@ -11822,7 +11822,7 @@
     "breakout_zone": 11793.0,
     "stop_loss": 11167.12,
     "status": "Flag Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "RBLBANK",
@@ -11866,7 +11866,7 @@
     "breakout_zone": 7731.25,
     "stop_loss": 6575.14,
     "status": "Breakout Ready",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "KIRLOSENG",
@@ -12031,7 +12031,7 @@
     "breakout_zone": 256.04,
     "stop_loss": 202.15,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "IMFA",
@@ -12097,7 +12097,7 @@
     "breakout_zone": 317.3,
     "stop_loss": 255.21,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "OFSS",
@@ -12196,7 +12196,7 @@
     "breakout_zone": 1185.1,
     "stop_loss": 1005.72,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "GOCLCORP",
@@ -12226,10 +12226,10 @@
     "sector": "Industrials",
     "cap_class": "Micro",
     "pattern": "Stage2Breakout",
-    "breakout_zone": 285.31,
+    "breakout_zone": 285.3,
     "stop_loss": 244.78,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "OFSS",
@@ -12295,7 +12295,7 @@
     "breakout_zone": 268.78,
     "stop_loss": 202.15,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "SHADOWFAX",
@@ -12372,7 +12372,7 @@
     "breakout_zone": 305.62,
     "stop_loss": 255.21,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "IMFA",
@@ -12427,7 +12427,7 @@
     "breakout_zone": 1077.94,
     "stop_loss": 985.79,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "IMFA",
@@ -12471,7 +12471,7 @@
     "breakout_zone": 293.29,
     "stop_loss": 270.33,
     "status": "Flag Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "DIXON",
@@ -12493,7 +12493,7 @@
     "breakout_zone": 1525.2,
     "stop_loss": 1458.2,
     "status": "Flag Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "DIXON",
@@ -12515,7 +12515,7 @@
     "breakout_zone": 320.7,
     "stop_loss": 271.75,
     "status": "Flag Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "RADICO",
@@ -12548,7 +12548,7 @@
     "breakout_zone": 985.07,
     "stop_loss": 845.94,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "TATACONSUM",
@@ -12570,7 +12570,7 @@
     "breakout_zone": 559.13,
     "stop_loss": 495.57,
     "status": "Breakout Ready",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "TATACONSUM",
@@ -12647,7 +12647,7 @@
     "breakout_zone": 683.05,
     "stop_loss": 490.17,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "SHAILY",
@@ -12680,7 +12680,7 @@
     "breakout_zone": 820.35,
     "stop_loss": 576.78,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "KARURVYSYA",
@@ -12724,7 +12724,7 @@
     "breakout_zone": 1104.6,
     "stop_loss": 809.22,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "METROPOLIS",
@@ -12845,7 +12845,7 @@
     "breakout_zone": 1152.7,
     "stop_loss": 1111.18,
     "status": "Flag Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "RADICO",
@@ -12878,7 +12878,7 @@
     "breakout_zone": 1043.05,
     "stop_loss": 845.94,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "MEDPLUS",
@@ -12920,9 +12920,9 @@
     "cap_class": "Mid",
     "pattern": "BullFlag",
     "breakout_zone": 600.0,
-    "stop_loss": 555.81,
+    "stop_loss": 555.57,
     "status": "Flag Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "SHAILY",
@@ -13131,7 +13131,7 @@
     "breakout_zone": 1045.3,
     "stop_loss": 909.23,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "RADICO",
@@ -13208,7 +13208,7 @@
     "breakout_zone": 619.15,
     "stop_loss": 554.36,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "TATACONSUM",
@@ -13230,7 +13230,7 @@
     "breakout_zone": 754.4,
     "stop_loss": 605.57,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "METROPOLIS",
@@ -13307,7 +13307,7 @@
     "breakout_zone": 956.85,
     "stop_loss": 909.23,
     "status": "Flag Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "TEAMLEASE",
@@ -13318,7 +13318,7 @@
     "breakout_zone": 1112.74,
     "stop_loss": 1058.75,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "RAMCOCEM",
@@ -13373,7 +13373,7 @@
     "breakout_zone": 732.0,
     "stop_loss": 681.23,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "MAXHEALTH",
@@ -13604,7 +13604,7 @@
     "breakout_zone": 314.95,
     "stop_loss": 239.9,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "SKIPPER",
@@ -13626,7 +13626,7 @@
     "breakout_zone": 1063.42,
     "stop_loss": 838.61,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "RATNAVEER",
@@ -13769,7 +13769,7 @@
     "breakout_zone": 69.12,
     "stop_loss": 62.44,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "DIXON",
@@ -13835,7 +13835,7 @@
     "breakout_zone": 1934.0,
     "stop_loss": 1628.82,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "GLAND",
@@ -13901,7 +13901,7 @@
     "breakout_zone": 225.49,
     "stop_loss": 184.95,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "ICICIPRULI",
@@ -14000,7 +14000,7 @@
     "breakout_zone": 59.53,
     "stop_loss": 51.45,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "RATNAVEER",
@@ -14110,7 +14110,7 @@
     "breakout_zone": 67.56,
     "stop_loss": 61.46,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "DIXON",
@@ -14154,7 +14154,7 @@
     "breakout_zone": 888.75,
     "stop_loss": 793.94,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "MAYURUNIQ",
@@ -14185,9 +14185,9 @@
     "cap_class": "Mid",
     "pattern": "BullFlag",
     "breakout_zone": 785.3,
-    "stop_loss": 735.65,
+    "stop_loss": 734.97,
     "status": "Flag Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "TATACAP",
@@ -14253,7 +14253,7 @@
     "breakout_zone": 210.27,
     "stop_loss": 197.63,
     "status": "Flag Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "DHAMPURSUG",
@@ -14286,7 +14286,7 @@
     "breakout_zone": 60.39,
     "stop_loss": 53.35,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "RAMCOCEM",
@@ -14308,7 +14308,7 @@
     "breakout_zone": 1263.3,
     "stop_loss": 1094.64,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "MAXHEALTH",
@@ -14451,7 +14451,7 @@
     "breakout_zone": 211.76,
     "stop_loss": 197.63,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "RAMCOCEM",
@@ -14528,7 +14528,7 @@
     "breakout_zone": 1241.9,
     "stop_loss": 1189.8,
     "status": "Flag Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "TATACAP",
@@ -14583,7 +14583,7 @@
     "breakout_zone": 67.81,
     "stop_loss": 62.44,
     "status": "Flag Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "CEATLTD",
@@ -14873,7 +14873,7 @@
   },
   {
     "stock": "GVT&D",
-    "name": "GE Vernova T&D India Ltd",
+    "name": "GE Vernova T&D India Limited",
     "sector": "Industrials",
     "cap_class": "Large",
     "pattern": "FlatBase",
@@ -14913,7 +14913,7 @@
     "breakout_zone": 1666.95,
     "stop_loss": 1473.04,
     "status": "Breakout Ready",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "SJS",
@@ -14924,7 +14924,7 @@
     "breakout_zone": 1725.45,
     "stop_loss": 1473.04,
     "status": "Breakout Ready",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "ANGELONE",
@@ -15474,7 +15474,7 @@
     "breakout_zone": 426.08,
     "stop_loss": 381.94,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "ADANIGREEN",
@@ -16002,7 +16002,7 @@
     "breakout_zone": 379.02,
     "stop_loss": 339.06,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "INDIASHLTR",
@@ -16090,7 +16090,7 @@
     "breakout_zone": 411.5,
     "stop_loss": 323.4,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "HINDZINC",
@@ -16156,7 +16156,7 @@
     "breakout_zone": 1733.0,
     "stop_loss": 1736.45,
     "status": "Pocket Pivot",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "CARERATING",
@@ -16684,7 +16684,7 @@
     "breakout_zone": 47.5,
     "stop_loss": 40.85,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "DEEPINDS",
@@ -16728,7 +16728,7 @@
     "breakout_zone": 46.01,
     "stop_loss": 35.79,
     "status": "Breakout Ready",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "SJS",
@@ -16739,7 +16739,7 @@
     "breakout_zone": 1808.8,
     "stop_loss": 1736.45,
     "status": "Burst Active",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "GHCLTEXTIL",
@@ -16805,7 +16805,7 @@
     "breakout_zone": 38.22,
     "stop_loss": 31.55,
     "status": "Breakout Ready",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "DWARKESH",
@@ -16816,7 +16816,7 @@
     "breakout_zone": 47.5,
     "stop_loss": 40.85,
     "status": "Flag Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "MEGASTAR",
@@ -16838,7 +16838,7 @@
     "breakout_zone": 346.92,
     "stop_loss": 281.74,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "POCL",
@@ -17080,7 +17080,7 @@
     "breakout_zone": 211.76,
     "stop_loss": 197.63,
     "status": "Setup Ready",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "VIYASH",
@@ -17091,7 +17091,7 @@
     "breakout_zone": 200.31,
     "stop_loss": 174.49,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "NAVNETEDUL",
@@ -17322,7 +17322,7 @@
     "breakout_zone": 4185.2,
     "stop_loss": 3429.05,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "HINDPETRO",
@@ -17564,7 +17564,7 @@
     "breakout_zone": 43.36,
     "stop_loss": 45.08,
     "status": "Pocket Pivot",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "HFCL",
@@ -17619,7 +17619,7 @@
     "breakout_zone": 46.96,
     "stop_loss": 45.08,
     "status": "Burst Active",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "BAJAJ-AUTO",
@@ -17641,7 +17641,7 @@
     "breakout_zone": 12417.0,
     "stop_loss": 11220.96,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "IKS",
@@ -17674,7 +17674,7 @@
     "breakout_zone": 47.1,
     "stop_loss": 32.43,
     "status": "Breakout Ready",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "GLOBUSSPR",
@@ -17718,7 +17718,7 @@
     "breakout_zone": 593.31,
     "stop_loss": 470.78,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "IIFL",
@@ -17927,7 +17927,7 @@
     "breakout_zone": 12417.0,
     "stop_loss": 9716.49,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "ADANIPOWER",
@@ -18015,7 +18015,7 @@
     "breakout_zone": 1631.1,
     "stop_loss": 1373.71,
     "status": "Forming",
-    "added_date": "2026-04-30"
+    "added_date": "2026-05-01"
   },
   {
     "stock": "ULTRACEMCO",
@@ -18146,6 +18146,61 @@
     "pattern": "FallingWedge",
     "breakout_zone": 25.73,
     "stop_loss": 19.05,
+    "status": "Breakout Ready",
+    "added_date": "2026-05-01"
+  },
+  {
+    "stock": "CHOLAFIN",
+    "name": "Cholamandalam Investment and Finance Company Limited",
+    "sector": "Financial Services",
+    "cap_class": "Large",
+    "pattern": "FallingWedge",
+    "breakout_zone": 1497.14,
+    "stop_loss": 1314.06,
+    "status": "Breakout Ready",
+    "added_date": "2026-05-01"
+  },
+  {
+    "stock": "CHOLAFIN",
+    "name": "Cholamandalam Investment and Finance Company Limited",
+    "sector": "Financial Services",
+    "cap_class": "Large",
+    "pattern": "DoubleBottom",
+    "breakout_zone": 1804.05,
+    "stop_loss": 1314.06,
+    "status": "Forming",
+    "added_date": "2026-05-01"
+  },
+  {
+    "stock": "CHOLAFIN",
+    "name": "Cholamandalam Investment and Finance Company Limited",
+    "sector": "Financial Services",
+    "cap_class": "Large",
+    "pattern": "FlatBase",
+    "breakout_zone": 1589.2,
+    "stop_loss": 1461.98,
+    "status": "Forming",
+    "added_date": "2026-05-01"
+  },
+  {
+    "stock": "CHOLAFIN",
+    "name": "Cholamandalam Investment and Finance Company Limited",
+    "sector": "Financial Services",
+    "cap_class": "Large",
+    "pattern": "InvHS",
+    "breakout_zone": 1667.85,
+    "stop_loss": 1314.06,
+    "status": "Forming",
+    "added_date": "2026-05-01"
+  },
+  {
+    "stock": "CHOLAFIN",
+    "name": "Cholamandalam Investment and Finance Company Limited",
+    "sector": "Financial Services",
+    "cap_class": "Large",
+    "pattern": "BullFlag",
+    "breakout_zone": 1568.2,
+    "stop_loss": 1490.31,
     "status": "Breakout Ready",
     "added_date": "2026-05-01"
   }
