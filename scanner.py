@@ -1548,11 +1548,12 @@ def send_telegram_file(filepath, caption=""):
         log.error(f"Telegram file: {e}")
 
 def fmt_daily(df, market_trend, ftd, regime_info=None):
+    _ist_hm = _ist("%H:%M")
     buys = df[df["recommendation"].str.startswith("BUY", na=False)]
     watch = df[df["recommendation"].str.startswith("WATCH", na=False)]
     ftd_str = "YES \u2705" if ftd else "NO"
     lines = [
-        f"<b>\U0001f4ca NSE Scanner \u2014 {_today()} {_ist("%H:%M")}</b>",
+        f"<b>\U0001f4ca NSE Scanner \u2014 {_today()} {_ist_hm}</b>",
         f"Market: {market_trend} | FTD: {ftd_str} | Regime: {regime_info['regime'] if regime_info else '?'}",
         f"BUY: {len(buys)} | WATCH: {len(watch)}\n",
     ]
@@ -1913,27 +1914,33 @@ def main():
         log.info(f"=== 30-min scan {_ist()} ===")
         alerts, quick_df = halfhour_check(nifty_d)
         log.info(f"{len(alerts)} alerts | {time.time()-t0:.0f}s")
-        if alerts:
-            if args.telegram:
+        if args.telegram:
+            # ── Text alert: only new (non-deduped) signals ────────────────────
+            if alerts:
                 msg = fmt_halfhour(alerts[:20])
                 if msg: send_telegram(msg)
-                # Send CSV of all quick-scan signals
-                # Merge watchlist alerts into CSV too
-                if quick_df is None:
-                    quick_df = pd.DataFrame(alerts)  # at minimum include alert dicts
-                elif len(alerts) > len(quick_df):
-                    pass  # quick_df already has richer data
-                if quick_df is not None and len(quick_df):
-                    _hh_time = _ist("%H%M")
-                    csv_path = os.path.join(OUTPUT_DIR,
-                        f"halfhour_{_today()}_{_hh_time}.csv")
-                    quick_df.to_csv(csv_path, index=False)
-                    n_active = sum(1 for a in alerts
-                                   if a.get("status") in ("BREAKOUT TRIGGERED","Burst Active"))
-                    cap = (f"30-min {_ist()} | {len(quick_df)} signals | "
-                           f"{n_active} active | Market: {market_trend if nifty_d is not None else '?'}")
-                    send_telegram_file(csv_path, cap)
-        else:
+            else:
+                log.info("No new alerts this round (all deduped or no signals)")
+
+            # ── CSV: always send when quick_df has data (regardless of dedup) ─
+            # quick_df = full scan results; alerts = subset not yet sent today
+            if quick_df is None and alerts:
+                quick_df = pd.DataFrame(alerts)  # fallback: use alert dicts
+            if quick_df is not None and len(quick_df):
+                _hh_time = _ist("%H%M")
+                csv_path = os.path.join(OUTPUT_DIR,
+                    f"halfhour_{_today()}_{_hh_time}.csv")
+                quick_df.to_csv(csv_path, index=False)
+                n_active = sum(1 for a in alerts
+                               if a.get("status") in ("BREAKOUT TRIGGERED","Burst Active"))
+                mkt_str = market_trend if nifty_d is not None else "?"
+                cap = (f"30-min {_ist()} | {len(quick_df)} signals | "
+                       f"{n_active} new alerts | Market: {mkt_str}")
+                send_telegram_file(csv_path, cap)
+                log.info(f"CSV sent: {csv_path}")
+            else:
+                log.info("No signals in quick_df — CSV skipped")
+        elif not alerts:
             log.info("No new signals this round")
         return
 
@@ -1941,7 +1948,7 @@ def main():
     con = get_db()
     t0 = time.time()
     scan_label = "TEST" if args.test else "DAILY"
-    log.info(f"=== {scan_label} {_today()} {_ist("%H:%M")} ===")
+    _scan_time = _ist("%H:%M"); log.info(f"=== {scan_label} {_today()} {_scan_time} ===")
 
     stocks = load_universe()
     if args.test:
@@ -2042,7 +2049,7 @@ def main():
              len(stocks), ok_count, len(df), len(buys), round(elapsed,1)))
 
     # Save CSV
-    csv_path = os.path.join(OUTPUT_DIR, f"scan_{_today()}_{datetime.now().strftime('%H%M')}.csv")
+    _csv_hm = _ist("%H%M"); csv_path = os.path.join(OUTPUT_DIR, f"scan_{_today()}_{_csv_hm}.csv")
     df.to_csv(csv_path, index=False)
     log.info(f"CSV saved → {csv_path}")
 
@@ -2066,7 +2073,8 @@ def main():
         # Send text alert
         send_telegram(fmt_daily(df, market_trend, ftd_active))
         # Send full CSV as file
-        caption = (f"NSE Scanner {_today()} {_ist("%H:%M")} | "
+        _cap_time = _ist("%H:%M")
+        caption = (f"NSE Scanner {_today()} {_cap_time} | "
                    f"BUY: {len(buys)} | WATCH: {len(watches)} | "
                    f"Total: {len(df)} signals | Market: {market_trend}")
         send_telegram_file(csv_path, caption)
