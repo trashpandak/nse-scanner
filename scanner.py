@@ -168,6 +168,7 @@ def get_db():
             breakout_zone REAL, cmp REAL, stop_loss REAL,
             target_1 REAL, target_2 REAL, target_3 REAL,
             risk_reward REAL, quality REAL, vol_surge REAL,
+            rs_percentile REAL, dist_52wk_pct REAL,
             canslim_score INTEGER, data_completeness INTEGER,
             converging TEXT, leg TEXT,
             earnings_near INTEGER, ftd_active INTEGER,
@@ -202,6 +203,22 @@ def get_db():
         CREATE INDEX IF NOT EXISTS idx_sig_stock ON signals(stock);
         CREATE INDEX IF NOT EXISTS idx_alerts ON alerts_sent(scan_date,stock);
     """)
+    # ── Schema migration: add columns that may be missing from older DB ──────
+    # SQLite does not support IF NOT EXISTS on ALTER TABLE — use try/except
+    _new_cols = [
+        ("rs_percentile",  "REAL"),
+        ("dist_52wk_pct",  "REAL"),
+        ("rs_percentile",  "REAL"),   # duplicate safe — caught by except
+    ]
+    _seen = set()
+    for col, typ in _new_cols:
+        if col in _seen: continue
+        _seen.add(col)
+        try:
+            con.execute(f"ALTER TABLE signals ADD COLUMN {col} {typ}")
+            con.commit()
+        except Exception:
+            pass   # column already exists — fine
     con.commit()
     return con
 
