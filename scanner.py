@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-NSE Live Pattern Scanner v3.4
+NSE Live Pattern Scanner v3.6
 ==============================
 Fixes from v3.2 (what you saw failing in GitHub Actions):
   1. DB PERSISTENCE — GitHub Actions is stateless. Each run is a fresh container.
@@ -42,6 +42,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 from scipy.signal import find_peaks
+from scipy.stats import percentileofscore
 
 # ================================================================
 # PATHS & LOGGING
@@ -50,6 +51,7 @@ BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 LOG_DIR    = os.path.join(BASE_DIR, "logs")
 OUTPUT_DIR = os.path.join(BASE_DIR, "output")
 DB_PATH    = os.path.join(BASE_DIR, "signals.db")
+CACHE_PATH = os.path.join(BASE_DIR, "price_cache.db")  # incremental OHLCV cache
 WL_PATH    = os.path.join(BASE_DIR, "watchlist.json")   # persisted via git
 
 for d in [LOG_DIR, OUTPUT_DIR]:
@@ -73,6 +75,7 @@ log = logging.getLogger("scanner")
 # ================================================================
 NIFTY_SYM    = "^NSEI"
 PERIOD_DAILY = "1y"
+STALE_DAYS   = 5     # re-fetch full history if cache is older than this
 PERIOD_QUICK = "3mo"
 MAX_WORKERS  = 4
 DL_RETRIES   = 3
@@ -87,6 +90,17 @@ CS = {
     "L_min_rs": 1.10, "I_min_instl": 0.20,
     "buy_strong": 6, "buy_moderate": 4,
 }
+
+# ── Trading filters ────────────────────────────────────────────────────────────
+MIN_LIQUIDITY_CR   = 15.0   # min avg daily turnover ₹ Cr (was 1 — too loose)
+MIN_DIST_52WK_PCT  = 0.00   # stock must be within this % of 52wk high (0 = no filter)
+MAX_DIST_52WK_PCT  = 0.30   # within 30% of 52-week high (Minervishi rule N)
+MAX_STOP_PCT       = 0.08   # max stop loss from entry (8% — Minervishi hard limit)
+MIN_RS_PERCENTILE  = 40     # min relative-strength percentile vs universe
+INDIA_VIX_SYM      = "^INDIAVIX"
+VIX_HIGH_THRESH    = 22.0   # if VIX > this: reduce aggression, flag as "High Fear"
+VIX_EXTREME_THRESH = 30.0   # if VIX > this: suppress BUY-strong signals
+HALFHOUR_CONFIRM_HOUR = 13  # MomBurst halfhour alerts suppressed before 1 PM IST
 
 INTRADAY_DETECTORS = {"MomBurst", "EpisodicPivot", "PocketPivot"}
 
@@ -175,6 +189,15 @@ def get_db():
             scan_date TEXT, stock TEXT, pattern TEXT, status TEXT,
             created_at TEXT DEFAULT (datetime('now','localtime'))
         );
+        CREATE TABLE IF NOT EXISTS signal_outcomes (
+            stock TEXT, pattern TEXT, signal_date TEXT,
+            entry_price REAL, stop_loss REAL, target_1 REAL,
+            price_3d REAL, price_5d REAL, price_10d REAL, price_20d REAL,
+            return_3d REAL, return_5d REAL, return_10d REAL, return_20d REAL,
+            hit_t1 INTEGER DEFAULT 0, hit_stop INTEGER DEFAULT 0,
+            tracked_date TEXT,
+            PRIMARY KEY (stock, pattern, signal_date)
+        );
         CREATE INDEX IF NOT EXISTS idx_sig_date ON signals(scan_date);
         CREATE INDEX IF NOT EXISTS idx_sig_stock ON signals(stock);
         CREATE INDEX IF NOT EXISTS idx_alerts ON alerts_sent(scan_date,stock);
@@ -214,6 +237,10 @@ def load_watchlist():
     return []
 
 def save_watchlist(items):
+    # Prune: keep only last 14 days and cap at 500 items
+    cutoff = str(_today() - timedelta(days=14))
+    items = [i for i in items if i.get("added_date","") >= cutoff]
+    items = items[:500]
     with open(WL_PATH, "w") as f:
         json.dump(items, f, indent=2)
     log.info(f"Watchlist saved: {len(items)} items → {WL_PATH}")
@@ -239,7 +266,7 @@ def mark_alert_sent(stock, pattern, status):
         except Exception:
             pass
     sent.append({"stock": stock, "pattern": pattern, "status": status,
-                 "time": _ist('%H:%M')})
+                 "time": _ist("%H:%M")})
     with open(path, "w") as f:
         json.dump(sent, f)
 
@@ -282,6 +309,262 @@ def load_universe():
 
 _YF_SESSION = None
 _YF_SESSION_LOCK = Lock()
+
+
+# ================================================================
+# PRICE CACHE — incremental OHLCV store
+# ================================================================
+# How it works:
+#   First run (or cache miss) → downloads full 1y via yf.download, stores all bars
+#   Subsequent runs            → downloads only last 7d, upserts new bars
+#   GitHub Actions             → cache persisted via actions/cache on price_cache.db
+#   Result                     → daily scan: ~20 min first day, ~4 min every day after
+#
+# Table: price_cache(stock, date, open, high, low, close, volume)
+# Table: cache_meta(stock, last_updated, bar_count)
+# ================================================================
+
+_cache_lock = Lock()
+_cache_con  = None   # module-level connection (thread-safe with WAL)
+
+def _get_cache():
+    global _cache_con
+    with _cache_lock:
+        if _cache_con is None:
+            _cache_con = sqlite3.connect(CACHE_PATH, check_same_thread=False)
+            _cache_con.execute("PRAGMA journal_mode=WAL")
+            _cache_con.execute("PRAGMA synchronous=NORMAL")
+            _cache_con.executescript("""
+                CREATE TABLE IF NOT EXISTS price_cache (
+                    stock   TEXT    NOT NULL,
+                    date    TEXT    NOT NULL,
+                    open    REAL,
+                    high    REAL,
+                    low     REAL,
+                    close   REAL    NOT NULL,
+                    volume  REAL,
+                    PRIMARY KEY (stock, date)
+                );
+                CREATE TABLE IF NOT EXISTS cache_meta (
+                    stock        TEXT PRIMARY KEY,
+                    last_updated TEXT,
+                    bar_count    INTEGER,
+                    fund_json    TEXT,
+                    fund_updated TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_cache_stock ON price_cache(stock);
+            """)
+            _cache_con.commit()
+        return _cache_con
+
+
+def _cache_read(stock: str) -> pd.DataFrame | None:
+    """Load cached OHLCV for a stock. Returns DataFrame or None."""
+    try:
+        con = _get_cache()
+        df = pd.read_sql(
+            "SELECT date,open,high,low,close,volume FROM price_cache "
+            "WHERE stock=? ORDER BY date",
+            con, params=(stock,)
+        )
+        if len(df) < 20:
+            return None
+        df["date"] = pd.to_datetime(df["date"])
+        df = df.set_index("date")
+        df.columns = ["Open","High","Low","Close","Volume"]
+        df.index.name = None
+        return df.astype(float)
+    except Exception:
+        return None
+
+
+def _cache_write(stock: str, df: pd.DataFrame):
+    """Write/upsert OHLCV rows for a stock."""
+    if df is None or len(df) == 0:
+        return
+    try:
+        con = _get_cache()
+        rows = []
+        for idx, row in df.iterrows():
+            date_str = str(idx.date()) if hasattr(idx, "date") else str(idx)[:10]
+            rows.append((
+                stock, date_str,
+                float(row.get("Open", row.get("open", 0)) or 0),
+                float(row.get("High", row.get("high", 0)) or 0),
+                float(row.get("Low",  row.get("low",  0)) or 0),
+                float(row.get("Close",row.get("close",0)) or 0),
+                float(row.get("Volume",row.get("volume",0)) or 0),
+            ))
+        with _cache_lock:
+            con.executemany(
+                "INSERT OR REPLACE INTO price_cache "
+                "(stock,date,open,high,low,close,volume) VALUES (?,?,?,?,?,?,?)",
+                rows
+            )
+            con.execute(
+                "INSERT OR REPLACE INTO cache_meta (stock,last_updated,bar_count) "
+                "VALUES (?,?,?)",
+                (stock, str(_today()), len(rows))
+            )
+            con.commit()
+    except Exception as e:
+        log.debug(f"Cache write {stock}: {e}")
+
+
+def _cache_meta(stock: str) -> dict:
+    """Return metadata for a cached stock."""
+    try:
+        con = _get_cache()
+        row = con.execute(
+            "SELECT last_updated, bar_count FROM cache_meta WHERE stock=?",
+            (stock,)
+        ).fetchone()
+        if row:
+            return {"last_updated": row[0], "bar_count": row[1]}
+    except Exception:
+        pass
+    return {}
+
+
+def _fund_cache_read(stock: str) -> dict | None:
+    """Read cached fundamentals (valid for today)."""
+    try:
+        con = _get_cache()
+        row = con.execute(
+            "SELECT fund_json, fund_updated FROM cache_meta WHERE stock=?",
+            (stock,)
+        ).fetchone()
+        if row and row[0] and row[1] == str(_today()):
+            return json.loads(row[0])
+    except Exception:
+        pass
+    return None
+
+
+def _fund_cache_write(stock: str, fund: dict):
+    """Cache fundamentals for today."""
+    try:
+        con = _get_cache()
+        with _cache_lock:
+            con.execute(
+                "INSERT OR REPLACE INTO cache_meta "
+                "(stock, last_updated, bar_count, fund_json, fund_updated) "
+                "VALUES (?, COALESCE((SELECT last_updated FROM cache_meta WHERE stock=?), ?), "
+                "        COALESCE((SELECT bar_count  FROM cache_meta WHERE stock=?), 0), ?, ?)",
+                (stock, stock, str(_today()), stock, json.dumps(fund), str(_today()))
+            )
+            con.commit()
+    except Exception as e:
+        log.debug(f"Fund cache write {stock}: {e}")
+
+
+def dl_cached(sym: str, period: str = PERIOD_DAILY) -> pd.DataFrame | None:
+    """
+    Incremental OHLCV fetch with local SQLite cache.
+
+    Logic:
+      1. Read cache. If empty or stale (> STALE_DAYS old) → full download.
+      2. If cache exists and last_updated == today → return cache as-is (already fresh).
+      3. If cache exists but not today → download last 7d, upsert, return merged.
+
+    After day 1, step 3 costs ~5 rows/stock instead of ~252. 50x faster.
+    """
+    cached = _cache_read(sym)
+    meta   = _cache_meta(sym)
+    today  = str(_today())
+
+    # Already updated today → return cache immediately
+    if cached is not None and meta.get("last_updated") == today:
+        return cached
+
+    # Cache is too old or empty → full download
+    stale = False
+    if meta.get("last_updated"):
+        try:
+            last = pd.to_datetime(meta["last_updated"]).date()
+            stale = (_today() - last).days > STALE_DAYS
+        except Exception:
+            stale = True
+    else:
+        stale = True  # never cached
+
+    if cached is None or stale:
+        log.debug(f"Full download: {sym}")
+        fresh = dl(sym, "1d", period)
+        if fresh is not None:
+            _cache_write(sym, fresh)
+        return fresh
+
+    # Incremental: just fetch last 7 days
+    log.debug(f"Incremental: {sym}")
+    recent = dl(sym, "1d", "7d")
+    if recent is None:
+        # Network issue — return what we have
+        return cached
+
+    # Merge: drop rows already in cache, append new ones
+    try:
+        new_rows = recent[~recent.index.normalize().isin(cached.index.normalize())]
+        if len(new_rows):
+            merged = pd.concat([cached, new_rows]).sort_index()
+            # Trim to roughly 1y (keep ~300 trading days)
+            if len(merged) > 300:
+                merged = merged.iloc[-300:]
+            _cache_write(sym, new_rows)   # only write the new rows
+            return merged
+        return cached
+    except Exception as e:
+        log.debug(f"Merge failed {sym}: {e}")
+        return cached
+
+
+def dl_fund_cached(sym: str) -> dict:
+    """Fundamentals with same-day cache. Avoids hitting Yahoo 2000× per daily scan."""
+    cached = _fund_cache_read(sym)
+    if cached is not None:
+        return cached
+    fund = dl_fund(sym)  # raw fetch
+    if fund.get("_fund_ok"):
+        _fund_cache_write(sym, fund)
+    return fund
+
+
+def warm_cache(stocks: list, workers: int = 8):
+    """
+    Pre-warm the price cache for a list of stocks.
+    Called once at the start of daily scan.
+    Stocks already cached today are skipped instantly.
+    """
+    today = str(_today())
+    need_full = [s for s in stocks if _cache_meta(s).get("last_updated") != today]
+    if not need_full:
+        log.info("Cache: all stocks already up-to-date for today")
+        return
+
+    log.info(f"Cache warm-up: {len(need_full)} stocks need update "
+             f"({len(stocks)-len(need_full)} already cached today)...")
+    t0 = time.time()
+    done = 0
+
+    def _fetch_one(sym):
+        return sym, dl_cached(sym)   # dl_cached handles full vs incremental
+
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futs = {ex.submit(_fetch_one, s): s for s in need_full}
+        for fut in as_completed(futs):
+            done += 1
+            if done % 200 == 0:
+                elapsed = time.time() - t0
+                rate = done / elapsed
+                eta  = (len(need_full) - done) / rate if rate > 0 else 0
+                log.info(f"  Cache: {done}/{len(need_full)} | "
+                         f"{elapsed:.0f}s elapsed | ETA {eta:.0f}s")
+            try:
+                fut.result()
+            except Exception:
+                pass
+
+    log.info(f"Cache warm-up done: {time.time()-t0:.1f}s")
 
 def _build_session():
     try:
@@ -379,6 +662,77 @@ def cap_class(mc):
 # ================================================================
 # MARKET SIGNALS
 # ================================================================
+def fetch_india_vix() -> float | None:
+    """Fetch India VIX. Returns float or None."""
+    try:
+        df = dl(INDIA_VIX_SYM, "1d", "5d")
+        if df is not None and len(df) > 0:
+            return round(float(df["Close"].values[-1]), 2)
+    except Exception:
+        pass
+    return None
+
+
+def check_market_breadth(nifty500_sample: list) -> dict:
+    """
+    Compute % of stocks above 50-DMA and 200-DMA.
+    Uses cached data from whatever is already in price_cache.
+    Returns dict: {pct_above_50: float, pct_above_200: float, regime: str}
+    """
+    above_50 = 0; above_200 = 0; total = 0
+    for sym in nifty500_sample[:100]:   # sample 100 for speed
+        cached = _cache_read(sym)
+        if cached is None or len(cached) < 50: continue
+        c = cached["Close"].values.astype(float)
+        total += 1
+        if c[-1] > np.mean(c[-min(50, len(c)):]): above_50 += 1
+        if len(c) >= 200 and c[-1] > np.mean(c[-200:]): above_200 += 1
+    if total == 0:
+        return {"pct_above_50": 50, "pct_above_200": 50, "regime": "Unknown"}
+    p50  = round(above_50  / total * 100, 1)
+    p200 = round(above_200 / total * 100, 1)
+    if p50 >= 60 and p200 >= 50:   regime = "Bull"
+    elif p50 >= 40 and p200 >= 35: regime = "Neutral"
+    elif p50 < 40 and p200 < 35:   regime = "Bear"
+    else:                          regime = "Mixed"
+    return {"pct_above_50": p50, "pct_above_200": p200, "regime": regime}
+
+
+def get_market_regime(nifty_df, vix: float | None, breadth: dict) -> dict:
+    """
+    4-state market regime combining: Nifty trend + VIX + breadth.
+    Returns dict with regime, aggression (0-3), and detail string.
+    """
+    if nifty_df is None or len(nifty_df) < 50:
+        return {"regime": "Unknown", "aggression": 1, "detail": "no data"}
+    c = nifty_df["Close"].values
+    ma50  = np.mean(c[-50:])
+    ma200 = np.mean(c[-min(200, len(c)):])
+    above_50  = c[-1] > ma50
+    above_200 = c[-1] > ma200
+    vix_ok = vix is None or vix < VIX_HIGH_THRESH
+    vix_extreme = vix is not None and vix > VIX_EXTREME_THRESH
+    b_regime = breadth.get("regime", "Unknown")
+
+    if above_200 and above_50 and vix_ok and b_regime == "Bull":
+        regime = "Strong-Bull"; aggression = 3
+    elif above_200 and (vix_ok or b_regime in ("Bull","Neutral")):
+        regime = "Uptrend"; aggression = 2
+    elif above_200 and not vix_ok:
+        regime = "Cautious"; aggression = 1
+    elif not above_200 and above_50:
+        regime = "Choppy"; aggression = 1
+    else:
+        regime = "Bear"; aggression = 0
+
+    if vix_extreme: aggression = max(0, aggression - 1)
+
+    detail = (f"Nifty {'↑' if above_50 else '↓'}50MA "
+              f"{'↑' if above_200 else '↓'}200MA | "
+              f"VIX {vix:.1f}" if vix else "VIX N/A") +              f" | Breadth {breadth.get('pct_above_50','?')}%↑50d"
+    return {"regime": regime, "aggression": aggression, "detail": detail}
+
+
 def check_follow_through_day(nifty_df):
     if nifty_df is None or len(nifty_df) < 30:
         return False, "no data"
@@ -428,6 +782,23 @@ def calc_adr(close, p=20):
 # ================================================================
 # CANSLIM
 # ================================================================
+def calc_rs_percentile(close, nc, lb=63) -> float | None:
+    """
+    Relative strength percentile vs Nifty over lb trading days.
+    Returns 0-100 (higher = stronger than index).
+    Simple: stock_return / nifty_return ratio, expressed as percentile
+    approximation via outperformance magnitude.
+    """
+    if nc is None or len(close) < lb or len(nc) < lb: return None
+    sr = (close[-1] / close[-lb] - 1) if close[-lb] > 0 else 0
+    nr = (nc[-1] / nc[-lb] - 1) if nc[-lb] > 0 else 0
+    # Outperformance: if stock up 30% vs Nifty up 10% = outperform 20pp
+    outperf = sr - nr
+    # Map to rough percentile: 0pp = 50th, +20pp = ~85th, -20pp = ~15th
+    pct = 50 + outperf * 175   # linear approximation
+    return round(min(max(pct, 0), 100), 1)
+
+
 def canslim_score(close, vol, fund, nc, nr):
     n = len(close); idx = n - 1; score = 0; checks = 0
     lb = min(252, idx); hi = np.max(close[max(0,idx-lb):idx+1])
@@ -443,7 +814,8 @@ def canslim_score(close, vol, fund, nc, nr):
         if nc[-1] > np.mean(nc[-200:]): score += 1
     if vol is not None and idx >= 20:
         checks += 1
-        if np.mean(vol[idx-19:idx+1])*np.mean(close[idx-19:idx+1])/1e7 >= 1.0: score += 1
+        # FIX: raise to ₹15 Cr/day (was ₹1 Cr — too loose, allowed illiquid stocks)
+        if np.mean(vol[idx-19:idx+1])*np.mean(close[idx-19:idx+1])/1e7 >= MIN_LIQUIDITY_CR: score += 1
     for key, th in [("earningsQuarterlyGrowth", CS["C_min"]),
                     ("earningsGrowth", CS["A_min"]),
                     ("heldPercentInstitutions", CS["I_min_instl"])]:
@@ -453,31 +825,84 @@ def canslim_score(close, vol, fund, nc, nr):
             if v >= th: score += 1
     return score, checks
 
-def recommend(status, score, mkt_up):
+def recommend(status, score, mkt_up, aggression=2, rs_pct=None):
+    """
+    FIX: respect market regime aggression (0=Bear,1=Cautious,2=Uptrend,3=Bull).
+    Bear (aggression=0): no BUY signals. RS filter applied for BUY-strong.
+    """
     bo = any(k in status for k in ["Breakout","Burst","Pivot","Pocket"])
-    if bo and score >= CS["buy_strong"] and mkt_up:  return "BUY — strong"
-    if bo and score >= CS["buy_moderate"]:            return "BUY — moderate"
-    if not bo and score >= CS["buy_strong"]:          return "WATCH — await breakout"
-    if score >= CS["buy_moderate"]:                   return "WATCH — mixed"
+    if aggression == 0: return "WATCH — bear mkt" if score >= CS["buy_moderate"] else "AVOID"
+    rs_ok = rs_pct is None or rs_pct >= MIN_RS_PERCENTILE
+    if bo and score >= CS["buy_strong"] and mkt_up and aggression >= 2 and rs_ok:
+        return "BUY — strong"
+    if bo and score >= CS["buy_moderate"] and aggression >= 1:
+        return "BUY — moderate"
+    if not bo and score >= CS["buy_strong"]: return "WATCH — await breakout"
+    if score >= CS["buy_moderate"]: return "WATCH — mixed"
     return "AVOID"
 
 # ================================================================
 # TARGETS
 # ================================================================
-def calc_targets(pattern, bz, bottom, cmp, adr):
+def calc_atr(close, period=14) -> float:
+    """Average True Range over period days (simplified — no High/Low, uses close-to-close)."""
+    if len(close) < period + 1: return close[-1] * 0.02
+    moves = np.abs(np.diff(close[-period-1:]))
+    return float(np.mean(moves))
+
+
+def calc_targets(pattern, bz, bottom, cmp, adr, close=None):
+    """
+    Pattern-specific targets with ATR-based stop loss capped at MAX_STOP_PCT (8%).
+    Minervishi rule: if natural stop > 8% from entry, trade has too much risk — skip.
+    ATR stop = entry - 1.5 * ATR14, but never wider than MAX_STOP_PCT from entry.
+    """
     if not bz or bz <= 0: return None, None, None, None, None
     h = bz - bottom if bottom and bottom > 0 else bz * 0.10
-    stop = round(bottom*0.97,2) if bottom and bottom > 0 else round(bz*0.92,2)
+
+    # ── ATR-based stop (better than flat %) ──────────────────────────────────
+    if close is not None and len(close) >= 15:
+        atr14 = calc_atr(close, 14)
+        # Natural stop = entry - 1.5 × ATR
+        natural_stop = cmp - 1.5 * atr14
+        # Hard cap: never more than MAX_STOP_PCT below entry
+        min_allowed = cmp * (1 - MAX_STOP_PCT)
+        # Also use pattern bottom as reference for base patterns
+        pattern_stop = bottom * 0.98 if bottom and bottom > 0 else cmp * 0.92
+        # Use the HIGHEST (tightest) of the three
+        stop = round(max(natural_stop, min_allowed, pattern_stop), 2)
+    else:
+        stop = round(cmp * (1 - MAX_STOP_PCT), 2)   # fallback: 8% hard stop
+
+    # ── Targets ──────────────────────────────────────────────────────────────
     if pattern in ("MomBurst","EpisodicPivot","PocketPivot"):
+        # Short-term momentum: targets 5/10/15%, tight stop
         t1,t2,t3 = round(cmp*1.05,2), round(cmp*1.10,2), round(cmp*1.15,2)
-        stop = round(cmp*0.96,2)
+        if close is not None and len(close) >= 15:
+            atr14 = calc_atr(close, 14)
+            stop = round(max(cmp - 1.2 * atr14, cmp * 0.96), 2)
+        else:
+            stop = round(cmp * 0.96, 2)
     elif "Flag" in pattern:
         t1,t2,t3 = round(bz+h*0.5,2), round(bz+h,2), round(bz+h*1.5,2)
     else:
+        # Base patterns: measured move + Fibonacci extension
         t1,t2,t3 = round(bz+h*0.5,2), round(bz+h,2), round(bz+h*1.618,2)
-    risk = cmp-stop if stop < cmp else cmp*0.05
-    reward = t2-cmp if t2 > cmp else cmp*0.10
-    return stop, t1, t2, t3, round(reward/risk,2) if risk > 0 else 0
+
+    # ── RR validation ────────────────────────────────────────────────────────
+    risk   = max(cmp - stop, cmp * 0.01)
+    reward = max(t2 - cmp,   cmp * 0.05)
+    rr = round(reward / risk, 2) if risk > 0 else 0
+
+    # ── Flag trades where stop > 8% from entry as "wide stop" ────────────────
+    actual_stop_pct = (cmp - stop) / cmp if cmp > 0 else 0
+    if actual_stop_pct > MAX_STOP_PCT:
+        # Widen is impossible to trade safely — set stop at max allowed
+        stop = round(cmp * (1 - MAX_STOP_PCT), 2)
+        risk = cmp - stop
+        rr   = round(reward / risk, 2) if risk > 0 else 0
+
+    return stop, t1, t2, t3, rr
 
 def identify_leg(close, bz):
     if len(close) < 50 or not bz: return "Unknown"
@@ -603,9 +1028,17 @@ def det_cup(c, v):
         r2 = 1 - np.sum((s[:rpi+1]-fit)**2)/np.sum((s[:rpi+1]-np.mean(s[:rpi+1]))**2)
         if cf[0] <= 0 or r2 < 0.50: return None
     except: return None
+    # FIX: Volume should DRY UP through middle of cup (O'Neil requirement)
+    if v is not None and rpi > 5:
+        left_vol  = np.mean(v[:rpi//2+1])  if rpi//2 > 0 else v[0]
+        mid_vol   = np.mean(v[rpi//4:3*rpi//4]) if rpi > 4 else v[rpi//2]
+        vol_dryup_cup = mid_vol < left_vol * 0.9   # mid-cup vol < 90% of early vol
+    else:
+        vol_dryup_cup = True   # can't check, don't penalise
     vs = vsurge(v, n); bo = c[-1] >= pk*0.97 and (vs is not None and vs >= 1.2)
+    quality_adj = round((r2-sym) * (1.1 if vol_dryup_cup else 0.85), 3)
     return dict(pattern="CupHandle", status="Breakout Ready" if bo else "Forming",
-                quality=round(r2-sym,3), bz=round(float(pk),2), bottom=round(float(tr),2),
+                quality=quality_adj, bz=round(float(pk),2), bottom=round(float(tr),2),
                 last=round(float(c[-1]),2), vs=vs,
                 m1=round(d*100,2), m2=round(sym*100,2), m3=round(hd*100,2), m4=round(r,2), m5=round(r2,3))
 
@@ -633,13 +1066,33 @@ def det_vcp(c, v):
     depths = [ct[2] for ct in contractions]
     if not all(depths[i] <= depths[i-1]*0.85 for i in range(1,len(depths))): return None
     if contractions[-1][1] < n*0.5: return None
+
+    # FIX: Final contraction must be tight (< 8% depth) — real VCPs end very tight
+    final_depth = depths[-1]
+    if final_depth > 0.08: return None   # last contraction too loose
+
+    # FIX: Final contraction must be short (< 15 bars) — tight time = institutional buying
+    final_start = contractions[-1][0]
+    final_end   = contractions[-1][1]
+    final_days  = final_end - final_start
+    if final_days > 15: return None
+
+    # FIX: Volume must contract through the pattern (later contractions quieter)
+    if v is not None:
+        vol_in_ct = [np.mean(v[ct[0]:ct[1]+1]) for ct in contractions]
+        vol_contracting = all(vol_in_ct[i] <= vol_in_ct[i-1]*1.1 for i in range(1,len(vol_in_ct)))
+    else:
+        vol_contracting = True
+
     pivot = float(np.max(c[highs])); vs = vsurge(v, n)
     bo = c[-1] >= pivot*0.98 and (vs is not None and vs >= 1.5)
     return dict(pattern="VCP", status="Breakout Ready" if bo else "Forming",
-                quality=round(1-depths[-1],3), bz=round(pivot,2),
+                quality=round((1-final_depth) * (1 if vol_contracting else 0.7), 3),
+                bz=round(pivot,2),
                 bottom=round(float(c[contractions[-1][1]]),2), last=round(float(c[-1]),2), vs=vs,
-                m1=round(depths[0]*100,2), m2=round(depths[-1]*100,2),
-                m3=round(depths[-1]/depths[0],2) if depths[0]>0 else None, m4=len(contractions), m5=None)
+                m1=round(depths[0]*100,2), m2=round(final_depth*100,2),
+                m3=round(depths[-1]/depths[0],2) if depths[0]>0 else None,
+                m4=len(contractions), m5=final_days)
 
 def det_fb(c, v):
     n = len(c)
@@ -808,10 +1261,19 @@ def det_momburst(c, v):
     if day_gain < 0.04: return None
     # Bonde: today volume > yesterday volume
     if v[-1] <= v[-2]: return None
-    # Liquidity gate: avg 20d turnover > 1 Cr INR
+    # Liquidity gate: avg 20d turnover > MIN_LIQUIDITY_CR (₹15 Cr)
     if n >= 20:
         avg_to = np.mean(v[-20:]) * np.mean(c[-20:]) / 1e7
-        if avg_to < 1.0: return None
+        if avg_to < MIN_LIQUIDITY_CR: return None
+    # FIX: Volume must also be above 50d average (not just yesterday)
+    # Bonde's advanced filter: institutional participation, not just a one-day spike
+    if n >= 50:
+        vol_ma50 = np.mean(v[-50:])
+        if v[-1] < vol_ma50 * 1.0: return None   # today vol must at least match average
+    # FIX: Stock must be within 30% of 52-week high (Minervishi rule N)
+    if n >= 50:
+        hi52 = np.max(c[-min(252,n):])
+        if hi52 > 0 and (hi52 - c[-1]) / hi52 > MAX_DIST_52WK_PCT: return None
     # Must be in uptrend (above 50-MA)
     ma50 = np.mean(c[-min(50, n):])
     if c[-1] < ma50: return None
@@ -841,7 +1303,12 @@ def det_momburst(c, v):
         m5=round((c[-1]-c[-5])/c[-5]*100, 2) if n >= 5 and c[-5] > 0 else None,
     )
 
-def det_epivot(c, v, o=None):
+def det_epivot(c, v, o=None, hi=None, lo=None):
+    """
+    Episodic Pivot with close-strength check (FIX: stock must HOLD the gap).
+    close_strength = (close - low) / (high - low) >= 0.65
+    If no High/Low data, falls back to close-only approximation.
+    """
     n = len(c)
     if n<22: return None
     gap=((o[-1]-c[-2])/c[-2]) if o is not None and len(o)==n else ((c[-1]-c[-2])/c[-2])
@@ -849,9 +1316,18 @@ def det_epivot(c, v, o=None):
     vs=vsurge(v,n)
     if vs is None or vs<3.0: return None
     if c[-1]<np.mean(c[-min(200,n):]): return None
+    # FIX: close strength — must close near high of the day (not fade the gap)
+    if hi is not None and lo is not None and len(hi)==n and len(lo)==n:
+        day_range = hi[-1] - lo[-1]
+        cs = (c[-1] - lo[-1]) / day_range if day_range > 0 else 0.5
+    else:
+        # Approximate: if close > open, strong day
+        cs = 0.7 if (o is None or c[-1] >= o[-1]) else 0.3
+    if cs < 0.65: return None   # faded — not a real EP
     return dict(pattern="EpisodicPivot", status="Breakout Ready",
-                quality=round(gap,3), bz=round(float(c[-1]),2), bottom=round(float(c[-2]),2),
-                last=round(float(c[-1]),2), vs=vs, m1=round(gap*100,2), m2=vs, m3=None, m4=None, m5=None)
+                quality=round(gap * cs, 3), bz=round(float(c[-1]),2), bottom=round(float(c[-2]),2),
+                last=round(float(c[-1]),2), vs=vs,
+                m1=round(gap*100,2), m2=vs, m3=round(cs,2), m4=None, m5=None)
 
 def det_ppivot(c, v):
     """
@@ -933,18 +1409,32 @@ DETECTORS = {
 # SCAN ONE STOCK
 # ================================================================
 def scan_stock(sym, nifty_d, ftd_active, market_trend,
-               period=PERIOD_DAILY, detector_filter=None):
+               period=PERIOD_DAILY, detector_filter=None, aggression=2):
     fund = dl_fund(sym)
     fund_ok = fund.get("_fund_ok", False)
     cc, cr = cap_class(fund.get("marketCap"))
     rows = []; patterns_found = set()
 
-    df = dl(sym, "1d", period)
+    df = dl_cached(sym, period)  # uses incremental cache
     if df is None or len(df) < 30: return rows, fund_ok
 
     close = df["Close"].values.astype(float)
-    vol = df["Volume"].values.astype(float) if "Volume" in df.columns else None
-    open_p = df["Open"].values.astype(float) if "Open" in df.columns else None
+    vol   = df["Volume"].values.astype(float) if "Volume" in df.columns else None
+    open_p= df["Open"].values.astype(float)   if "Open"   in df.columns else None
+    high_p= df["High"].values.astype(float)   if "High"   in df.columns else None
+    low_p = df["Low"].values.astype(float)    if "Low"    in df.columns else None
+
+    # ── Global liquidity pre-filter (skip before any detector runs) ──────────
+    if vol is not None and len(close) >= 20:
+        avg_to = np.mean(vol[-20:]) * np.mean(close[-20:]) / 1e7
+        if avg_to < MIN_LIQUIDITY_CR: return rows, fund_ok   # illiquid — skip entirely
+
+    # ── 52-week high proximity filter ────────────────────────────────────────
+    dist_52wk = None
+    rs_pct = None   # default before pattern loop
+    if len(close) >= 50:
+        hi52 = np.max(close[-min(252,len(close)):])
+        dist_52wk = round((hi52 - close[-1]) / hi52 * 100, 1) if hi52 > 0 else None
 
     if nifty_d is not None and len(nifty_d) > 0:
         nc = nifty_d.reindex(df.index, method="ffill")["Close"].values
@@ -970,8 +1460,10 @@ def scan_stock(sym, nifty_d, ftd_active, market_trend,
             seg_c = close[-w:]; seg_v = vol[-w:] if vol is not None else None
             try:
                 if pat == "EpisodicPivot":
-                    seg_o = open_p[-w:] if open_p is not None else None
-                    res = detector(seg_c, seg_v, o=seg_o)
+                    seg_o  = open_p[-w:] if open_p is not None else None
+                    seg_hi = high_p[-w:] if high_p is not None else None
+                    seg_lo = low_p[-w:]  if low_p  is not None else None
+                    res = detector(seg_c, seg_v, o=seg_o, hi=seg_hi, lo=seg_lo)
                 else:
                     res = detector(seg_c, seg_v)
             except Exception: continue
@@ -981,12 +1473,17 @@ def scan_stock(sym, nifty_d, ftd_active, market_trend,
         if best is None: continue
 
         mkt_up = ftd_active or "Bull" in str(market_trend) or "Uptrend" in str(market_trend)
-        rec = recommend(best["status"], cs, mkt_up)
+        rec = recommend(best["status"], cs, mkt_up, aggression=aggression, rs_pct=rs_pct)
         if rec == "AVOID": continue
 
         patterns_found.add(pat)
         stop, t1, t2, t3, rr = calc_targets(best["pattern"], best["bz"],
-                                              best.get("bottom"), best["last"], adr)
+                                              best.get("bottom"), best["last"], adr,
+                                              close=close)   # ATR stop uses full history
+        try:
+            rs_pct = calc_rs_percentile(close, nc, lb=63)
+        except Exception:
+            rs_pct = None
         leg = identify_leg(close, best["bz"])
         notes = " | ".join(filter(None, [
             "EARNINGS SOON" if earnings_near else None,
@@ -995,14 +1492,16 @@ def scan_stock(sym, nifty_d, ftd_active, market_trend,
             f"ADR={adr}%" if adr >= 3.5 else None,
         ]))
         rows.append(dict(
-            scan_date=str(_today()), scan_time=_ist('%H:%M'),
+            scan_date=str(_today()), scan_time=_ist("%H:%M"),
             scan_mode="daily", stock=sym.replace(".NS",""), name=fund.get("longName"),
             sector=fund.get("sector"), cap_class=cc, cap_cr=cr,
             pattern=best["pattern"], timeframe="Daily", status=best["status"],
             breakout_zone=best["bz"], cmp=best["last"], stop_loss=stop,
             target_1=t1, target_2=t2, target_3=t3, risk_reward=rr,
             quality=best["quality"], vol_surge=best.get("vs"),
-            canslim_score=cs, data_completeness=completeness, converging=None, leg=leg,
+            canslim_score=cs, data_completeness=completeness,
+            rs_percentile=rs_pct, dist_52wk_pct=dist_52wk,
+            converging=None, leg=leg,
             earnings_near=1 if earnings_near else 0, ftd_active=1 if ftd_active else 0,
             vol_dryup=1 if vdu else 0, stage=stage, recommendation=rec,
             m1=best.get("m1"), m2=best.get("m2"), m3=best.get("m3"),
@@ -1049,13 +1548,13 @@ def send_telegram_file(filepath, caption=""):
     except Exception as e:
         log.error(f"Telegram file: {e}")
 
-def fmt_daily(df, market_trend, ftd):
+def fmt_daily(df, market_trend, ftd, regime_info=None):
     buys = df[df["recommendation"].str.startswith("BUY", na=False)]
     watch = df[df["recommendation"].str.startswith("WATCH", na=False)]
     ftd_str = "YES \u2705" if ftd else "NO"
     lines = [
-        f"<b>\U0001f4ca NSE Scanner \u2014 {_today()} {_ist('%H:%M')}</b>",
-        f"Market: {market_trend} | FTD: {ftd_str}",
+        f"<b>\U0001f4ca NSE Scanner \u2014 {_today()} {_ist("%H:%M")}</b>",
+        f"Market: {market_trend} | FTD: {ftd_str} | Regime: {regime_info['regime'] if regime_info else '?'}",
         f"BUY: {len(buys)} | WATCH: {len(watch)}\n",
     ]
     for _, r in buys.head(15).iterrows():
@@ -1102,9 +1601,13 @@ def halfhour_check(nifty_d):
         ftd_active, _ = check_follow_through_day(nifty_d)
         market_trend = check_market_trend(nifty_d["Close"].values)
 
-    # Part A: watchlist check
-    watchlist = load_watchlist()
-    log.info(f"Watchlist: {len(watchlist)} items")
+    # Part A: watchlist check — cap to 200 most recent with valid breakout zones
+    _all_wl = load_watchlist()
+    # Only items with a breakout zone (skips bare WATCH entries with no target)
+    watchlist = [w for w in _all_wl if w.get("breakout_zone") and w.get("breakout_zone") > 0]
+    # Most recently added first, cap at 200
+    watchlist = sorted(watchlist, key=lambda w: w.get("added_date",""), reverse=True)[:200]
+    log.info(f"Watchlist: {len(watchlist)}/{len(_all_wl)} items (capped to 200, have bz)")
     for item in watchlist:
         sym = item["stock"] + ".NS"
         df = dl(sym, "1d", "5d")
@@ -1125,12 +1628,21 @@ def halfhour_check(nifty_d):
             mark_alert_sent(item["stock"], item.get("pattern",""), status)
 
     # Part B: quick-scan top stocks for same-day signals (always runs)
+    # FIX: MomBurst before 1 PM = day hasn't confirmed the move yet (too many fades)
+    # After 1 PM IST: move is 3h old, much more likely to hold to close
+    current_hour_ist = _now().hour
+    if current_hour_ist < HALFHOUR_CONFIRM_HOUR:
+        intraday_dets = INTRADAY_DETECTORS - {"MomBurst"}
+        log.info(f"Before {HALFHOUR_CONFIRM_HOUR}:00 IST — MomBurst suppressed (unconfirmed moves)")
+    else:
+        intraday_dets = INTRADAY_DETECTORS
     log.info(f"Quick-scan {QUICK_SIZE} stocks for same-day signals...")
+    warm_cache(stocks, workers=MAX_WORKERS)  # incremental refresh for quick-scan stocks
     stocks = load_universe()[:QUICK_SIZE]
     quick_rows = []
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
         futs = {ex.submit(scan_stock, s, nifty_d, ftd_active, market_trend,
-                          PERIOD_QUICK, INTRADAY_DETECTORS): s for s in stocks}
+                          PERIOD_QUICK, intraday_dets): s for s in stocks}
         for fut in as_completed(futs):
             try:
                 rows, _ = fut.result()
@@ -1276,6 +1788,81 @@ def healthcheck():
 # ================================================================
 # MAIN
 # ================================================================
+
+# ================================================================
+# FORWARD RETURN TRACKER — answers "did the signals actually work?"
+# ================================================================
+def track_outcomes(con):
+    """
+    Run daily to fill in forward returns for signals from 3/5/10/20 days ago.
+    Builds the evidence base for knowing which detectors work on NSE.
+    """
+    today = str(_today())
+    # Look for signals from 3,5,10,20 days ago that need price updates
+    for lookback in [3, 5, 10, 20]:
+        target_date = str(_today() - timedelta(days=lookback + 2))  # approx trading day
+        signals = db_query(con,
+            "SELECT id,stock,pattern,cmp,stop_loss,target_1,scan_date "
+            "FROM signals WHERE scan_date=? AND recommendation LIKE 'BUY%'",
+            (target_date,))
+        if not signals: continue
+        col = f"price_{lookback}d"
+        ret_col = f"return_{lookback}d"
+        for sig in signals:
+            df = dl_cached(sig["stock"]+".NS", "7d")
+            if df is None or len(df) == 0: continue
+            current_price = float(df["Close"].values[-1])
+            entry = sig.get("cmp") or 0
+            if entry <= 0: continue
+            ret = round((current_price - entry) / entry * 100, 2)
+            hit_t1   = 1 if (sig.get("target_1") and current_price >= sig["target_1"]) else 0
+            hit_stop = 1 if (sig.get("stop_loss") and current_price <= sig["stop_loss"]) else 0
+            try:
+                with _db_lock:
+                    con.execute("""
+                        INSERT OR REPLACE INTO signal_outcomes
+                        (stock,pattern,signal_date,entry_price,stop_loss,target_1,
+                         tracked_date,hit_t1,hit_stop)
+                        VALUES (?,?,?,?,?,?,?,?,?)
+                        ON CONFLICT(stock,pattern,signal_date) DO UPDATE SET
+                        """ + f"{col}=excluded.{col}, {ret_col}=excluded.{ret_col},"
+                        + "hit_t1=excluded.hit_t1, hit_stop=excluded.hit_stop,"
+                          "tracked_date=excluded.tracked_date",
+                        (sig["stock"], sig["pattern"], sig["scan_date"],
+                         entry, sig.get("stop_loss"), sig.get("target_1"),
+                         today, hit_t1, hit_stop)
+                    )
+                    con.commit()
+            except Exception: pass
+    log.info("Outcome tracking updated")
+
+
+def print_outcome_summary(con):
+    """Print win-rate by pattern — the real backtest."""
+    try:
+        rows = db_query(con, """
+            SELECT pattern,
+                   count(*) as n,
+                   round(avg(return_5d),1) as avg_5d,
+                   round(avg(return_10d),1) as avg_10d,
+                   sum(hit_t1) as winners,
+                   sum(hit_stop) as losers
+            FROM signal_outcomes
+            WHERE return_5d IS NOT NULL
+            GROUP BY pattern ORDER BY avg_5d DESC
+        """)
+        if not rows:
+            log.info("No outcome data yet. Needs 5+ trading days of signals.")
+            return
+        log.info("\n--- Signal Outcome Summary (5-day forward return) ---")
+        log.info(f"{'Pattern':<20} {'N':>5} {'Avg5d%':>8} {'Avg10d%':>8} {'Winners':>8} {'Losers':>7}")
+        for r in rows:
+            wr = round(r['winners']/(r['winners']+r['losers'])*100) if (r['winners']+r['losers'])>0 else 0
+            log.info(f"{r['pattern']:<20} {r['n']:>5} {r['avg_5d']:>8} {r['avg_10d']:>8} "
+                     f"{r['winners']:>5}({wr}%) {r['losers']:>7}")
+    except Exception as e:
+        log.debug(f"Outcome summary: {e}")
+
 def main():
     ap = argparse.ArgumentParser(description="NSE Scanner v3.3")
     mode = ap.add_mutually_exclusive_group(required=True)
@@ -1293,10 +1880,32 @@ def main():
     # Fetch Nifty
     nifty_d = None
     for sym in ["^NSEI", "NIFTY_IND_NS"]:
-        nifty_d = dl(sym, "1d")
+        nifty_d = dl_cached(sym)  # incremental Nifty cache
         if nifty_d is not None: break
     if nifty_d is None:
         log.warning("Nifty fetch failed — continuing without market signals")
+
+    # ── Market context — computed once, shared by ALL modes ──────────────────
+    ftd_active   = False
+    market_trend = "Unknown"
+    aggression   = 2
+    india_vix    = None
+    breadth      = {"pct_above_50": 50, "pct_above_200": 50, "regime": "Unknown"}
+    regime_info  = {"regime": "Unknown", "aggression": 2, "detail": "no data"}
+    if nifty_d is not None:
+        ftd_active, ftd_note = check_follow_through_day(nifty_d)
+        market_trend = check_market_trend(nifty_d["Close"].values)
+        india_vix    = fetch_india_vix()
+        # breadth uses cached stocks — only available after warm-up, use light version here
+        try:
+            fallback_sample = NIFTY_500_FALLBACK_NS[:80]
+            breadth = check_market_breadth(fallback_sample)
+        except Exception:
+            pass
+        regime_info = get_market_regime(nifty_d, india_vix, breadth)
+        aggression  = regime_info["aggression"]
+        log.info(f"Market: {market_trend} | FTD: {ftd_active} | "
+                 f"Regime: {regime_info['regime']} (agg={aggression}) | VIX: {india_vix}")
 
     # ---- 30-MINUTE MODE ----
     if args.halfhour:
@@ -1309,9 +1918,15 @@ def main():
                 msg = fmt_halfhour(alerts[:20])
                 if msg: send_telegram(msg)
                 # Send CSV of all quick-scan signals
+                # Merge watchlist alerts into CSV too
+                if quick_df is None:
+                    quick_df = pd.DataFrame(alerts)  # at minimum include alert dicts
+                elif len(alerts) > len(quick_df):
+                    pass  # quick_df already has richer data
                 if quick_df is not None and len(quick_df):
+                    _hh_time = _ist("%H%M")
                     csv_path = os.path.join(OUTPUT_DIR,
-                        f"halfhour_{_today()}_{_ist('%H%M')}.csv")
+                        f"halfhour_{_today()}_{_hh_time}.csv")
                     quick_df.to_csv(csv_path, index=False)
                     n_active = sum(1 for a in alerts
                                    if a.get("status") in ("BREAKOUT TRIGGERED","Burst Active"))
@@ -1326,7 +1941,7 @@ def main():
     con = get_db()
     t0 = time.time()
     scan_label = "TEST" if args.test else "DAILY"
-    log.info(f"=== {scan_label} {_today()} {_ist('%H:%M')} ===")
+    log.info(f"=== {scan_label} {_today()} {_ist("%H:%M")} ===")
 
     stocks = load_universe()
     if args.test:
@@ -1334,6 +1949,11 @@ def main():
                   "TATAMOTORS.NS","BAJFINANCE.NS","ICICIBANK.NS","SBIN.NS","LT.NS"]
 
     log.info(f"{len(stocks)} stocks to scan")
+
+    # ── Warm-up price cache (incremental — only downloads what's new) ──────
+    # On first ever run: downloads 1y for all stocks (~15-20 min)
+    # On subsequent runs: only downloads last 7d (~3-4 min total)
+    warm_cache(stocks, workers=MAX_WORKERS)
 
     ftd_active = False; market_trend = "Unknown"
     if nifty_d is not None:
@@ -1344,7 +1964,8 @@ def main():
     all_rows = []; ok_count = 0; fund_fails = 0
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
-        futs = {ex.submit(scan_stock, s, nifty_d, ftd_active, market_trend): s for s in stocks}
+        futs = {ex.submit(scan_stock, s, nifty_d, ftd_active, market_trend,
+                                   aggression=aggression): s for s in stocks}
         for i, fut in enumerate(as_completed(futs)):
             if (i+1) % 200 == 0:
                 log.info(f"  {i+1}/{len(stocks)} | signals: {len(all_rows)}")
@@ -1388,12 +2009,12 @@ def main():
         (scan_date,scan_time,scan_mode,stock,name,sector,cap_class,cap_cr,
          pattern,timeframe,status,breakout_zone,cmp,stop_loss,
          target_1,target_2,target_3,risk_reward,quality,vol_surge,
-         canslim_score,data_completeness,converging,leg,
+         canslim_score,data_completeness,rs_percentile,dist_52wk_pct,converging,leg,
          earnings_near,ftd_active,vol_dryup,stage,recommendation,m1,m2,m3,m4,m5,notes)
         VALUES (:scan_date,:scan_time,:scan_mode,:stock,:name,:sector,:cap_class,:cap_cr,
          :pattern,:timeframe,:status,:breakout_zone,:cmp,:stop_loss,
          :target_1,:target_2,:target_3,:risk_reward,:quality,:vol_surge,
-         :canslim_score,:data_completeness,:converging,:leg,
+         :canslim_score,:data_completeness,:rs_percentile,:dist_52wk_pct,:converging,:leg,
          :earnings_near,:ftd_active,:vol_dryup,:stage,:recommendation,:m1,:m2,:m3,:m4,:m5,:notes)""",
                 df.to_dict("records"))
 
@@ -1417,7 +2038,7 @@ def main():
     db_exec(con, """INSERT INTO runs
         (scan_date,scan_time,mode,stocks_total,stocks_ok,signals,buys,elapsed_sec)
         VALUES (?,?,?,?,?,?,?,?)""",
-            (str(_today()), _ist('%H:%M'), scan_label,
+            (str(_today()), _ist("%H:%M"), scan_label,
              len(stocks), ok_count, len(df), len(buys), round(elapsed,1)))
 
     # Save CSV
@@ -1445,7 +2066,7 @@ def main():
         # Send text alert
         send_telegram(fmt_daily(df, market_trend, ftd_active))
         # Send full CSV as file
-        caption = (f"NSE Scanner {_today()} {_ist('%H:%M')} | "
+        caption = (f"NSE Scanner {_today()} {_ist("%H:%M")} | "
                    f"BUY: {len(buys)} | WATCH: {len(watches)} | "
                    f"Total: {len(df)} signals | Market: {market_trend}")
         send_telegram_file(csv_path, caption)
