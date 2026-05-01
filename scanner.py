@@ -240,7 +240,6 @@ def save_watchlist(items):
     # Prune: keep only last 14 days and cap at 500 items
     cutoff = str(_today() - timedelta(days=14))
     items = [i for i in items if i.get("added_date","") >= cutoff]
-    items = items[:500]
     with open(WL_PATH, "w") as f:
         json.dump(items, f, indent=2)
     log.info(f"Watchlist saved: {len(items)} items → {WL_PATH}")
@@ -1604,10 +1603,11 @@ def halfhour_check(nifty_d):
     # Part A: watchlist check — cap to 200 most recent with valid breakout zones
     _all_wl = load_watchlist()
     # Only items with a breakout zone (skips bare WATCH entries with no target)
+    # Keep only items with actionable breakout zone. All of them — cache makes this fast.
     watchlist = [w for w in _all_wl if w.get("breakout_zone") and w.get("breakout_zone") > 0]
-    # Most recently added first, cap at 200
-    watchlist = sorted(watchlist, key=lambda w: w.get("added_date",""), reverse=True)[:200]
-    log.info(f"Watchlist: {len(watchlist)}/{len(_all_wl)} items (capped to 200, have bz)")
+    # Most recent first (so newest signals get checked even if list is large)
+    watchlist = sorted(watchlist, key=lambda w: w.get("added_date",""), reverse=True)
+    log.info(f"Watchlist: {len(watchlist)}/{len(_all_wl)} items with bz (all cached)")
     for item in watchlist:
         sym = item["stock"] + ".NS"
         df = dl(sym, "1d", "5d")
