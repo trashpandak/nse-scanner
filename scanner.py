@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-NSE Live Pattern Scanner v3.6
+NSE Live Pattern Scanner v4.0
 ==============================
 Fixes from v3.2 (what you saw failing in GitHub Actions):
   1. DB PERSISTENCE — GitHub Actions is stateless. Each run is a fresh container.
@@ -43,6 +43,8 @@ import pandas as pd
 import numpy as np
 from scipy.signal import find_peaks
 from scipy.stats import percentileofscore
+# data_updater functions used by scanner
+from functools import lru_cache as _lru
 
 # ================================================================
 # PATHS & LOGGING
@@ -102,7 +104,154 @@ VIX_HIGH_THRESH    = 22.0   # if VIX > this: reduce aggression, flag as "High Fe
 VIX_EXTREME_THRESH = 30.0   # if VIX > this: suppress BUY-strong signals
 HALFHOUR_CONFIRM_HOUR = 13  # MomBurst halfhour alerts suppressed before 1 PM IST
 
-INTRADAY_DETECTORS = {"MomBurst", "EpisodicPivot", "PocketPivot"}
+INTRADAY_
+def scan_stock_intraday(sym: str, nifty_d, ftd_active: bool,
+                        market_trend: str, aggression: int = 2) -> tuple:
+    """
+    Multi-timeframe intraday scan using cached 15m data.
+    Runs ALL 13 detectors on 15m, then resamples to 30m/45m/75m.
+    Adds RVOL, VWAP, gap context to every signal.
+    """
+    fund = dl_fund_cached(sym)
+    fund_ok = fund.get("_fund_ok", False)
+    cc, cr = cap_class(fund.get("marketCap"))
+    rows = []; patterns_found = set()
+
+    # Read 15m base data (data_updater stores this)
+    df_15m = read_cache(sym, "15m", limit=300)
+    if df_15m is None or len(df_15m) < 30:
+        return rows, fund_ok
+
+    # Build multi-TF dict: run detectors on each
+    tf_dfs = {"15m": df_15m}
+    for tf in ["30m", "45m", "75m"]:
+        resampled = resample_tf(df_15m, tf)
+        if resampled is not None and len(resampled) >= 15:
+            tf_dfs[tf] = resampled
+    # Also add 1h from cache directly
+    df_1h = read_cache(sym, "1h", limit=200)
+    if df_1h is not None and len(df_1h) >= 15:
+        tf_dfs["1h"] = df_1h
+
+    # Nifty alignment (use daily nifty for CANSLIM checks)
+    nc = nr = None
+    if nifty_d is not None:
+        daily_df = read_cache(sym, "1d", limit=300) or dl_cached(sym)
+        if daily_df is not None:
+            nc = nifty_d.reindex(daily_df.index, method="ffill")["Close"].values
+            nr = np.full(len(nc), np.nan)
+            for i in range(252, len(nc)):
+                if nc[i-252] > 0: nr[i] = nc[i]/nc[i-252]-1
+
+    # CANSLIM on daily data
+    daily_df = read_cache(sym, "1d", limit=300)
+    if daily_df is not None and len(daily_df) >= 30:
+        close_d = daily_df["Close"].values.astype(float)
+        vol_d   = daily_df["Volume"].values.astype(float) if "Volume" in daily_df.columns else None
+        cs, completeness = canslim_score(close_d, vol_d, fund, nc, nr)
+        stage = check_weinstein_stage(close_d)
+        adr   = calc_adr(close_d)
+    else:
+        cs = 0; completeness = 0; stage = "Unknown"; adr = 0
+
+    # RVOL, VWAP, gap
+    rvol_td      = get_today_rvol(sym)
+    _vwap, vs_vwap = get_vwap_today(sym)
+    _today_gaps  = {g["stock"] for g in get_gap_signals_today()}
+    is_gap       = sym.replace(".NS","") in _today_gaps
+    dist_52wk    = None
+    rs_pct       = None
+    if daily_df is not None and len(daily_df) >= 50:
+        hi52 = np.max(daily_df["Close"].values[-min(252,len(daily_df)):])
+        dist_52wk = round((hi52 - daily_df["Close"].values[-1]) / hi52 * 100, 1) if hi52 > 0 else None
+        rs_pct = calc_rs_percentile(daily_df["Close"].values.astype(float), nc, lb=63)
+
+    vdu          = check_volume_dryup(daily_df["Volume"].values.astype(float) if daily_df is not None and "Volume" in daily_df.columns else None)
+    earnings_near = check_earnings_near(fund)
+    mkt_up       = ftd_active or "Bull" in str(market_trend) or "Uptrend" in str(market_trend)
+
+    # Run ALL 13 detectors on each timeframe
+    for tf_name, df in tf_dfs.items():
+        close = df["Close"].values.astype(float)
+        vol   = df["Volume"].values.astype(float) if "Volume" in df.columns else None
+        open_p = df["Open"].values.astype(float) if "Open" in df.columns else None
+        high_p = df["High"].values.astype(float) if "High" in df.columns else None
+        low_p  = df["Low"].values.astype(float)  if "Low"  in df.columns else None
+
+        for pat_name, (detector, windows) in DETECTORS.items():
+            best = None
+            for w in windows:
+                if len(close) < w: continue
+                seg_c = close[-w:]; seg_v = vol[-w:] if vol is not None else None
+                try:
+                    if pat_name == "EpisodicPivot":
+                        res = detector(seg_c, seg_v,
+                                       o=open_p[-w:] if open_p is not None else None,
+                                       hi=high_p[-w:] if high_p is not None else None,
+                                       lo=low_p[-w:]  if low_p  is not None else None)
+                    else:
+                        res = detector(seg_c, seg_v)
+                except Exception:
+                    continue
+                if res is None: continue
+                if best is None or res["quality"] > best["quality"]:
+                    best = {**res, "_w": w}
+            if best is None: continue
+
+            rec = recommend(best["status"], cs, mkt_up, aggression=aggression, rs_pct=rs_pct)
+            if rec == "AVOID": continue
+
+            patterns_found.add(pat_name)
+            stop, t1, t2, t3, rr = calc_targets(best["pattern"], best["bz"],
+                                                  best.get("bottom"), best["last"], adr, close=close)
+            try:
+                rs_pct_loop = calc_rs_percentile(daily_df["Close"].values.astype(float), nc, lb=63)
+            except Exception:
+                rs_pct_loop = None
+            leg = identify_leg(close, best["bz"])
+            notes = " | ".join(filter(None, [
+                "EARNINGS SOON" if earnings_near else None,
+                f"RVOL {rvol_td}x" if rvol_td and rvol_td >= 2.0 else None,
+                f"{'↑' if vs_vwap and vs_vwap>0 else '↓'}VWAP {abs(vs_vwap):.1f}%" if vs_vwap is not None else None,
+                "GAP-UP" if is_gap else None,
+                "VOL DRY-UP" if vdu else None,
+                f"STAGE2" if "Stage2" in stage else None,
+            ]))
+            rows.append(dict(
+                scan_date=str(_today()), scan_time=_ist("%H:%M"), scan_mode="halfhour",
+                stock=sym.replace(".NS",""), name=fund.get("longName"),
+                sector=fund.get("sector"), cap_class=cc, cap_cr=cr,
+                pattern=best["pattern"], timeframe=tf_name, status=best["status"],
+                breakout_zone=best["bz"], cmp=best["last"], stop_loss=stop,
+                target_1=t1, target_2=t2, target_3=t3, risk_reward=rr,
+                quality=best["quality"], vol_surge=best.get("vs"),
+                rs_percentile=rs_pct_loop, dist_52wk_pct=dist_52wk,
+                canslim_score=cs, data_completeness=completeness, converging=None, leg=leg,
+                earnings_near=1 if earnings_near else 0, ftd_active=1 if ftd_active else 0,
+                vol_dryup=1 if vdu else 0, stage=stage, recommendation=rec,
+                m1=best.get("m1"), m2=best.get("m2"), m3=best.get("m3"),
+                m4=best.get("m4"), m5=best.get("m5"), notes=notes or None,
+            ))
+
+    if len(patterns_found) > 1:
+        conv = "+".join(sorted(patterns_found))
+        for r in rows: r["converging"] = conv
+    return rows, fund_ok
+
+
+DETECTORS = {"MomBurst", "EpisodicPivot", "PocketPivot"}
+
+# Multi-TF intraday resample targets (derived from 15m base)
+RESAMPLE_TFS = ["30m", "45m", "75m"]
+
+# Sector index symbols
+SECTOR_SYMS = {
+    "NIFTYBANK": "^NSEBANK",
+    "NIFTYIT":   "NIFTYIT.NS",
+    "NIFTYPHARMA":"NIFTYPHARMA.NS",
+    "NIFTYAUTO": "NIFTYAUTO.NS",
+    "NIFTYMETAL":"NIFTYMETAL.NS",
+}
 
 # ================================================================
 # NIFTY 500 FALLBACK — used when NSE URL is blocked (GitHub IPs)
@@ -328,20 +477,16 @@ _YF_SESSION_LOCK = Lock()
 
 
 # ================================================================
-# PRICE CACHE — incremental OHLCV store
+# PRICE CACHE — multi-TF SQLite store (shared with data_updater.py)
 # ================================================================
-# How it works:
-#   First run (or cache miss) → downloads full 1y via yf.download, stores all bars
-#   Subsequent runs            → downloads only last 7d, upserts new bars
-#   GitHub Actions             → cache persisted via actions/cache on price_cache.db
-#   Result                     → daily scan: ~20 min first day, ~4 min every day after
-#
-# Table: price_cache(stock, date, open, high, low, close, volume)
-# Table: cache_meta(stock, last_updated, bar_count)
+# price_cache(stock, tf, date, open, high, low, close, volume)
+# cache_meta(stock, tf, last_date, last_updated, bar_count)
+# fund_cache(stock, fund_json, updated_date)
+# rvol_profile(stock, bucket_min, avg_vol, sample_days, updated)
 # ================================================================
 
 _cache_lock = Lock()
-_cache_con  = None   # module-level connection (thread-safe with WAL)
+_cache_con  = None
 
 def _get_cache():
     global _cache_con
@@ -350,199 +495,274 @@ def _get_cache():
             _cache_con = sqlite3.connect(CACHE_PATH, check_same_thread=False)
             _cache_con.execute("PRAGMA journal_mode=WAL")
             _cache_con.execute("PRAGMA synchronous=NORMAL")
+            _cache_con.execute("PRAGMA cache_size=-65536")
             _cache_con.executescript("""
                 CREATE TABLE IF NOT EXISTS price_cache (
-                    stock   TEXT    NOT NULL,
-                    date    TEXT    NOT NULL,
-                    open    REAL,
-                    high    REAL,
-                    low     REAL,
-                    close   REAL    NOT NULL,
-                    volume  REAL,
-                    PRIMARY KEY (stock, date)
+                    stock TEXT NOT NULL, tf TEXT NOT NULL, date TEXT NOT NULL,
+                    open REAL, high REAL, low REAL, close REAL NOT NULL, volume REAL,
+                    PRIMARY KEY (stock, tf, date)
                 );
                 CREATE TABLE IF NOT EXISTS cache_meta (
-                    stock        TEXT PRIMARY KEY,
-                    last_updated TEXT,
-                    bar_count    INTEGER,
-                    fund_json    TEXT,
-                    fund_updated TEXT
+                    stock TEXT NOT NULL, tf TEXT NOT NULL,
+                    last_date TEXT, last_updated TEXT, bar_count INTEGER,
+                    PRIMARY KEY (stock, tf)
                 );
-                CREATE INDEX IF NOT EXISTS idx_cache_stock ON price_cache(stock);
+                CREATE TABLE IF NOT EXISTS fund_cache (
+                    stock TEXT PRIMARY KEY, fund_json TEXT, updated_date TEXT
+                );
+                CREATE TABLE IF NOT EXISTS rvol_profile (
+                    stock TEXT NOT NULL, bucket_min INTEGER NOT NULL,
+                    avg_vol REAL, sample_days INTEGER, updated TEXT,
+                    PRIMARY KEY (stock, bucket_min)
+                );
+                CREATE TABLE IF NOT EXISTS gap_signals (
+                    scan_date TEXT NOT NULL, stock TEXT NOT NULL,
+                    gap_pct REAL, open_price REAL, prev_close REAL, volume REAL,
+                    PRIMARY KEY (scan_date, stock)
+                );
+                CREATE INDEX IF NOT EXISTS idx_pc_stock_tf ON price_cache(stock,tf);
+                CREATE INDEX IF NOT EXISTS idx_pc_date ON price_cache(tf,date);
             """)
+            # Migrate old single-TF schema if needed
+            try:
+                cols = [r[1] for r in _cache_con.execute("PRAGMA table_info(price_cache)").fetchall()]
+                if "tf" not in cols:
+                    log.info("Migrating old cache schema → multi-TF")
+                    _cache_con.execute("ALTER TABLE price_cache RENAME TO _pc_old")
+                    _cache_con.execute("""CREATE TABLE price_cache (
+                        stock TEXT NOT NULL, tf TEXT NOT NULL, date TEXT NOT NULL,
+                        open REAL, high REAL, low REAL, close REAL NOT NULL, volume REAL,
+                        PRIMARY KEY (stock, tf, date))""")
+                    _cache_con.execute(
+                        "INSERT INTO price_cache SELECT stock,'1d',date,open,high,low,close,volume FROM _pc_old")
+                    _cache_con.execute("DROP TABLE _pc_old")
+                    _cache_con.commit()
+            except Exception:
+                pass
             _cache_con.commit()
         return _cache_con
 
 
-def _cache_read(stock: str) -> pd.DataFrame | None:
-    """Load cached OHLCV for a stock. Returns DataFrame or None."""
+def read_cache(stock: str, tf: str = "1d", limit: int = 9999) -> pd.DataFrame | None:
+    """Read cached OHLCV. tf: 1d, 1wk, 1mo, 1h, 15m."""
     try:
         con = _get_cache()
         df = pd.read_sql(
-            "SELECT date,open,high,low,close,volume FROM price_cache "
-            "WHERE stock=? ORDER BY date",
-            con, params=(stock,)
+            f"SELECT date,open,high,low,close,volume FROM price_cache "
+            f"WHERE stock=? AND tf=? ORDER BY date DESC LIMIT {limit}",
+            con, params=(stock, tf)
         )
-        if len(df) < 20:
+        if len(df) < 2:
             return None
+        df = df.iloc[::-1].reset_index(drop=True)
         df["date"] = pd.to_datetime(df["date"])
         df = df.set_index("date")
         df.columns = ["Open","High","Low","Close","Volume"]
         df.index.name = None
         return df.astype(float)
+    except Exception as e:
+        log.debug(f"read_cache {stock} {tf}: {e}")
+        return None
+
+
+def resample_tf(df_15m: pd.DataFrame, tf: str) -> pd.DataFrame | None:
+    """Resample 15m → 30m, 45m, or 75m on the fly."""
+    if df_15m is None or len(df_15m) == 0:
+        return None
+    rule = {"30m":"30min","45m":"45min","75m":"75min"}.get(tf)
+    if not rule:
+        return None
+    try:
+        df = df_15m.copy()
+        df.index = pd.to_datetime(df.index)
+        r = df.resample(rule, label="left", closed="left").agg(
+            {"Open":"first","High":"max","Low":"min","Close":"last","Volume":"sum"}
+        ).dropna(subset=["Close"])
+        return r if len(r) > 0 else None
+    except Exception as e:
+        log.debug(f"Resample {tf}: {e}")
+        return None
+
+
+def get_today_rvol(stock: str) -> float | None:
+    """Time-of-day adjusted RVOL for right now."""
+    try:
+        con = _get_cache()
+        now = _now()
+        bucket = now.hour * 60 + now.minute
+        # Round to nearest 15min bucket
+        bucket = (bucket // 15) * 15
+        row = con.execute(
+            "SELECT avg_vol FROM rvol_profile WHERE stock=? AND bucket_min=?",
+            (stock, bucket)
+        ).fetchone()
+        if not row or not row[0]:
+            return None
+        # Get latest 15m bar volume
+        df = read_cache(stock, "15m", limit=10)
+        if df is None or len(df) == 0:
+            return None
+        df.index = pd.to_datetime(df.index)
+        today_df = df[df.index.date == _today()]
+        if len(today_df) == 0:
+            return None
+        actual = float(today_df["Volume"].iloc[-1])
+        return round(actual / float(row[0]), 2) if float(row[0]) > 0 else None
     except Exception:
         return None
 
 
-def _cache_write(stock: str, df: pd.DataFrame):
-    """Write/upsert OHLCV rows for a stock."""
-    if df is None or len(df) == 0:
-        return
+def get_vwap_today(stock: str) -> tuple:
+    """Returns (vwap, pct_vs_vwap). Positive = above VWAP."""
+    try:
+        df = read_cache(stock, "15m", limit=50)
+        if df is None or len(df) == 0:
+            return None, None
+        df.index = pd.to_datetime(df.index)
+        today_df = df[df.index.date == _today()]
+        if len(today_df) == 0:
+            return None, None
+        tp = (today_df["High"] + today_df["Low"] + today_df["Close"]) / 3
+        tot_vol = today_df["Volume"].sum()
+        if tot_vol == 0:
+            return None, None
+        vwap = float((tp * today_df["Volume"]).sum() / tot_vol)
+        close = float(today_df["Close"].iloc[-1])
+        pct   = round((close - vwap) / vwap * 100, 2) if vwap > 0 else None
+        return round(vwap, 2), pct
+    except Exception:
+        return None, None
+
+
+def get_sector_trend(sector_sym: str) -> str:
+    """Stage2/Uptrend/Choppy/Bear for a sector index from cache."""
+    df = read_cache(sector_sym, "1d", limit=300)
+    if df is None or len(df) < 50:
+        return "Unknown"
+    c = df["Close"].values.astype(float)
+    ma50  = np.mean(c[-min(50,len(c)):])
+    ma200 = np.mean(c[-min(200,len(c)):]) if len(c) >= 200 else ma50
+    if c[-1] > ma50 > ma200:  return "Stage2"
+    if c[-1] > ma200:         return "Uptrend"
+    if c[-1] < ma50 < ma200:  return "Stage4"
+    return "Choppy"
+
+
+def get_gap_signals_today() -> list:
+    """Return gap signals stored by data_updater --gap today."""
     try:
         con = _get_cache()
-        rows = []
-        for idx, row in df.iterrows():
-            date_str = str(idx.date()) if hasattr(idx, "date") else str(idx)[:10]
-            rows.append((
-                stock, date_str,
-                float(row.get("Open", row.get("open", 0)) or 0),
-                float(row.get("High", row.get("high", 0)) or 0),
-                float(row.get("Low",  row.get("low",  0)) or 0),
-                float(row.get("Close",row.get("close",0)) or 0),
-                float(row.get("Volume",row.get("volume",0)) or 0),
-            ))
-        with _cache_lock:
-            con.executemany(
-                "INSERT OR REPLACE INTO price_cache "
-                "(stock,date,open,high,low,close,volume) VALUES (?,?,?,?,?,?,?)",
-                rows
-            )
-            con.execute(
-                "INSERT OR REPLACE INTO cache_meta (stock,last_updated,bar_count) "
-                "VALUES (?,?,?)",
-                (stock, str(_today()), len(rows))
-            )
-            con.commit()
-    except Exception as e:
-        log.debug(f"Cache write {stock}: {e}")
+        rows = con.execute(
+            "SELECT stock,gap_pct,open_price,prev_close,volume FROM gap_signals "
+            "WHERE scan_date=? ORDER BY gap_pct DESC",
+            (str(_today()),)
+        ).fetchall()
+        return [{"stock":r[0],"gap_pct":r[1],"open":r[2],"prev_close":r[3],"vol":r[4]}
+                for r in rows]
+    except Exception:
+        return []
 
+
+# ── MTF Confirmation ─────────────────────────────────────────────────────────
+def check_mtf_confirm(stock: str, pattern: str) -> str | None:
+    """
+    Check if a daily signal also shows strength on 1h and 30m timeframes.
+    Returns string like "1h+30m", "1h", "30m", or None.
+    """
+    confirms = []
+    for tf in ["1h", "30m"]:
+        if tf == "1h":
+            df = read_cache(stock, "1h", limit=100)
+        else:
+            df_15m = read_cache(stock, "15m", limit=200)
+            df = resample_tf(df_15m, "30m") if df_15m is not None else None
+        if df is None or len(df) < 20:
+            continue
+        c = df["Close"].values.astype(float)
+        v = df["Volume"].values.astype(float) if "Volume" in df.columns else None
+        # Simple trend check: price above 20-bar MA and vol above average
+        ma20 = np.mean(c[-min(20,len(c)):])
+        vol_ok = v is not None and len(v) >= 20 and v[-1] > np.mean(v[-20:]) * 1.2
+        # Momentum: recent bars trending up
+        momentum = c[-1] > c[-5] if len(c) >= 5 else False
+        if c[-1] > ma20 and (vol_ok or momentum):
+            confirms.append(tf)
+    return "+".join(confirms) if confirms else None
+
+
+# ── Old compatibility wrappers (so existing code still works) ────────────────
+def _cache_read(stock: str) -> pd.DataFrame | None:
+    """Backward compat — reads daily cache."""
+    return read_cache(stock, "1d")
 
 def _cache_meta(stock: str) -> dict:
-    """Return metadata for a cached stock."""
     try:
         con = _get_cache()
         row = con.execute(
-            "SELECT last_updated, bar_count FROM cache_meta WHERE stock=?",
+            "SELECT last_updated, bar_count FROM cache_meta WHERE stock=? AND tf='1d'",
             (stock,)
         ).fetchone()
-        if row:
-            return {"last_updated": row[0], "bar_count": row[1]}
+        return {"last_updated": row[0], "bar_count": row[1]} if row else {}
     except Exception:
-        pass
-    return {}
+        return {}
 
-
-def _fund_cache_read(stock: str) -> dict | None:
-    """Read cached fundamentals (valid for today)."""
+def dl_fund_cached(sym: str) -> dict:
+    """Fundamentals with same-day cache (new fund_cache table)."""
     try:
         con = _get_cache()
         row = con.execute(
-            "SELECT fund_json, fund_updated FROM cache_meta WHERE stock=?",
-            (stock,)
+            "SELECT fund_json, updated_date FROM fund_cache WHERE stock=?", (sym,)
         ).fetchone()
         if row and row[0] and row[1] == str(_today()):
-            return json.loads(row[0])
+            import json as _j
+            return _j.loads(row[0])
     except Exception:
         pass
-    return None
+    fund = dl_fund(sym)
+    if fund.get("_fund_ok"):
+        try:
+            con = _get_cache()
+            with _cache_lock:
+                con.execute(
+                    "INSERT OR REPLACE INTO fund_cache (stock,fund_json,updated_date) VALUES (?,?,?)",
+                    (sym, json.dumps(fund), str(_today()))
+                )
+                con.commit()
+        except Exception:
+            pass
+    return fund
 
 
-def _fund_cache_write(stock: str, fund: dict):
-    """Cache fundamentals for today."""
-    try:
-        con = _get_cache()
-        with _cache_lock:
-            con.execute(
-                "INSERT OR REPLACE INTO cache_meta "
-                "(stock, last_updated, bar_count, fund_json, fund_updated) "
-                "VALUES (?, COALESCE((SELECT last_updated FROM cache_meta WHERE stock=?), ?), "
-                "        COALESCE((SELECT bar_count  FROM cache_meta WHERE stock=?), 0), ?, ?)",
-                (stock, stock, str(_today()), stock, json.dumps(fund), str(_today()))
-            )
-            con.commit()
-    except Exception as e:
-        log.debug(f"Fund cache write {stock}: {e}")
-
-
-def dl_cached(sym: str, period: str = PERIOD_DAILY) -> pd.DataFrame | None:
+def dl_cached(sym: str, period: str = PERIOD_DAILY, tf: str = "1d") -> pd.DataFrame | None:
     """
-    Incremental OHLCV fetch with local SQLite cache.
-
-    Logic:
-      1. Read cache. If empty or stale (> STALE_DAYS old) → full download.
-      2. If cache exists and last_updated == today → return cache as-is (already fresh).
-      3. If cache exists but not today → download last 7d, upsert, return merged.
-
-    After day 1, step 3 costs ~5 rows/stock instead of ~252. 50x faster.
+    Read from multi-TF cache (data_updater pre-populates).
+    Falls back to live download if cache empty or stale.
     """
-    cached = _cache_read(sym)
+    cached = read_cache(sym, tf)
     meta   = _cache_meta(sym)
     today  = str(_today())
-
-    # Already updated today → return cache immediately
     if cached is not None and meta.get("last_updated") == today:
         return cached
-
-    # Cache is too old or empty → full download
-    stale = False
+    stale = True
     if meta.get("last_updated"):
         try:
             last = pd.to_datetime(meta["last_updated"]).date()
             stale = (_today() - last).days > STALE_DAYS
         except Exception:
-            stale = True
-    else:
-        stale = True  # never cached
-
-    if cached is None or stale:
-        log.debug(f"Full download: {sym}")
-        fresh = dl(sym, "1d", period)
-        if fresh is not None:
-            _cache_write(sym, fresh)
-        return fresh
-
-    # Incremental: just fetch last 7 days
-    log.debug(f"Incremental: {sym}")
-    recent = dl(sym, "1d", "7d")
-    if recent is None:
-        # Network issue — return what we have
+            pass
+    if cached is not None and not stale:
+        recent = dl(sym, "1d", "7d")
+        if recent is not None:
+            try:
+                nr = recent[~recent.index.normalize().isin(cached.index.normalize())]
+                if len(nr):
+                    return pd.concat([cached, nr]).sort_index()
+            except Exception:
+                pass
         return cached
-
-    # Merge: drop rows already in cache, append new ones
-    try:
-        new_rows = recent[~recent.index.normalize().isin(cached.index.normalize())]
-        if len(new_rows):
-            merged = pd.concat([cached, new_rows]).sort_index()
-            # Trim to roughly 1y (keep ~300 trading days)
-            if len(merged) > 300:
-                merged = merged.iloc[-300:]
-            _cache_write(sym, new_rows)   # only write the new rows
-            return merged
-        return cached
-    except Exception as e:
-        log.debug(f"Merge failed {sym}: {e}")
-        return cached
-
-
-def dl_fund_cached(sym: str) -> dict:
-    """Fundamentals with same-day cache. Avoids hitting Yahoo 2000× per daily scan."""
-    cached = _fund_cache_read(sym)
-    if cached is not None:
-        return cached
-    fund = dl_fund(sym)  # raw fetch
-    if fund.get("_fund_ok"):
-        _fund_cache_write(sym, fund)
-    return fund
+    log.debug(f"Full download: {sym} {tf}")
+    fresh = dl(sym, "1d", period)
+    return fresh
 
 
 def warm_cache(stocks: list, workers: int = 8):
@@ -1431,7 +1651,7 @@ def scan_stock(sym, nifty_d, ftd_active, market_trend,
     cc, cr = cap_class(fund.get("marketCap"))
     rows = []; patterns_found = set()
 
-    df = dl_cached(sym, period)  # uses incremental cache
+    df = read_cache(sym, '1d') or dl_cached(sym, period)
     if df is None or len(df) < 30: return rows, fund_ok
 
     close = df["Close"].values.astype(float)
@@ -1501,11 +1721,25 @@ def scan_stock(sym, nifty_d, ftd_active, market_trend,
         except Exception:
             rs_pct = None
         leg = identify_leg(close, best["bz"])
+        # Time-adjusted RVOL from intraday cache
+        rvol_td = get_today_rvol(sym) if sym.endswith(".NS") else None
+        # VWAP position from 15m bars
+        _vwap, vs_vwap = get_vwap_today(sym)
+        # Multi-timeframe confirmation
+        mtf = check_mtf_confirm(sym, best["pattern"])
+        # Gap-up flag from data_updater
+        _today_gaps = {g["stock"] for g in get_gap_signals_today()}
+        is_gap = sym.replace(".NS","") in _today_gaps
+
         notes = " | ".join(filter(None, [
             "EARNINGS SOON" if earnings_near else None,
             "VOL DRY-UP" if vdu else None,
             "STAGE2" if "Stage2" in stage else None,
             f"ADR={adr}%" if adr >= 3.5 else None,
+            f"RVOL {rvol_td}x" if rvol_td and rvol_td >= 2.0 else None,
+            f"{'↑' if vs_vwap and vs_vwap>0 else '↓'}VWAP {abs(vs_vwap):.1f}%" if vs_vwap is not None else None,
+            f"MTF:{mtf}" if mtf else None,
+            "GAP-UP" if is_gap else None,
         ]))
         rows.append(dict(
             scan_date=str(_today()), scan_time=_ist("%H:%M"),
@@ -1659,8 +1893,8 @@ def halfhour_check(nifty_d):
     stocks = load_universe()[:QUICK_SIZE]
     quick_rows = []
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
-        futs = {ex.submit(scan_stock, s, nifty_d, ftd_active, market_trend,
-                          PERIOD_QUICK, intraday_dets): s for s in stocks}
+        futs = {ex.submit(scan_stock_intraday, s, nifty_d, ftd_active,
+                                      market_trend, aggression): s for s in stocks}
         for fut in as_completed(futs):
             try:
                 rows, _ = fut.result()
