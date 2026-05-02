@@ -90,7 +90,7 @@ permissions:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 200
 
     steps:
       - uses: actions/checkout@v4
@@ -199,7 +199,7 @@ jobs:
         if: steps.mode.outputs.MODE == 'healthcheck'
         run: python scanner.py --healthcheck
 
-      - name: Bootstrap (first run)
+      - name: Bootstrap (first run — safe to re-run, skips completed stocks)
         if: steps.mode.outputs.MODE == 'bootstrap'
         timeout-minutes: 90
         run: |
