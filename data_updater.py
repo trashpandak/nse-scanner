@@ -147,8 +147,10 @@ def dl(sym: str, interval: str = "1d", period: str = "1y") -> pd.DataFrame | Non
         try:
             sess = _get_session()
             kw = {"session": sess} if sess else {}
-            df = yf.download(sym, period=period, interval=interval,
-                             auto_adjust=True, progress=False, timeout=25, **kw)
+            import contextlib, io as _io
+            with contextlib.redirect_stderr(_io.StringIO()):  # suppress yfinance delisted noise
+                df = yf.download(sym, period=period, interval=interval,
+                                 auto_adjust=True, progress=False, timeout=25, **kw)
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
             df = df.dropna()
@@ -168,8 +170,10 @@ def dl_since(sym: str, interval: str, since_date: str) -> pd.DataFrame | None:
         try:
             sess = _get_session()
             kw = {"session": sess} if sess else {}
-            df = yf.download(sym, start=since_date, interval=interval,
-                             auto_adjust=True, progress=False, timeout=25, **kw)
+            import contextlib, io as _io
+            with contextlib.redirect_stderr(_io.StringIO()):
+                df = yf.download(sym, start=since_date, interval=interval,
+                                 auto_adjust=True, progress=False, timeout=25, **kw)
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
             df = df.dropna()
@@ -867,9 +871,13 @@ def run_bootstrap(stocks: list[str]):
     # Phase 2: Hourly
     log.info("Phase 2/3: Hourly data (1h, 2yr)...")
     t0 = time.time()
-    ok = err = 0
+    ok = err = skip = 0
 
     def _fetch_1h(sym):
+        # Skip if already have 1h data
+        existing = get_last_date(sym, "1h")
+        if existing:
+            return -1  # already done
         df = dl(sym, "1h", "2y")
         if df is not None and len(df) > 0:
             return write_cache(sym, "1h", df)
@@ -882,12 +890,13 @@ def run_bootstrap(stocks: list[str]):
             done += 1
             try:
                 n = fut.result()
-                if n: ok += 1
+                if n == -1: skip += 1
+                elif n: ok += 1
                 else: err += 1
             except Exception:
                 err += 1
             if done % 200 == 0:
-                log.info(f"  1h: {done}/{len(stocks)} | ok={ok} err={err}")
+                log.info(f"  1h: {done}/{len(stocks)} | ok={ok} skip={skip} err={err}")
 
     log.info(f"Phase 2 done: {time.time()-t0:.1f}s")
 
@@ -897,11 +906,14 @@ def run_bootstrap(stocks: list[str]):
     ok = err = 0
 
     def _fetch_15m(sym):
+        # Skip if already have 15m data (allows resume after timeout)
+        existing = get_last_date(sym, "15m")
+        if existing:
+            return -1  # already done
         df = dl(sym, "15m", "60d")
         if df is None or len(df) == 0:
             return 0
         n = write_cache(sym, "15m", df)
-        # Build RVOL profile from initial data
         if n > 0:
             update_rvol_profile(sym, df)
         return n
