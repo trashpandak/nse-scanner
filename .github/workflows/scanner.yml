@@ -1,71 +1,33 @@
-name: NSE Live Scanner v4.0
+name: NSE Live Scanner v4.1
 
 on:
   schedule:
-    # ── DAILY: data_updater first, then scanner ──────────────────
-    # 4:00 PM IST = 10:30 UTC — data_updater --daily
-    - cron: "30 10 * * 1-5"
-    # 4:30 PM IST = 11:00 UTC — scanner --daily
+    # ── DAILY SCANS (update EOD data + full scan in one job) ─────────────────
+    # 8:00 AM IST  = 2:30 UTC
+    - cron: "30 2 * * 1-5"
+    # 12:30 PM IST = 7:00 UTC
+    - cron: "0 7 * * 1-5"
+    # 4:30 PM IST  = 11:00 UTC
     - cron: "0 11 * * 1-5"
 
-    # ── 8:00 AM IST = 2:30 UTC — morning scanner ──────────────────
-    - cron: "30 2 * * 1-5"
-
-    # ── 12:30 PM IST = 7:00 UTC — midday scanner ──────────────────
-    - cron: "0 7 * * 1-5"
-
-    # ── GAP SCANNER 9:20 AM IST = 3:50 UTC ──────────────────────
+    # ── GAP SCANNER 9:20 AM IST = 3:50 UTC ───────────────────────────────────
     - cron: "50 3 * * 1-5"
 
-    # ── 30-MIN: intraday data_updater then scanner ───────────────
-    # Pattern: data_updater at :00, scanner at :15 every 30 min
-    # 9:30  AM IST = 4:00  UTC — updater
-    - cron: "0 4 * * 1-5"
-    # 9:45  AM IST = 4:15  UTC — scanner
-    - cron: "15 4 * * 1-5"
-    # 10:00 AM IST = 4:30  UTC — updater
-    - cron: "30 4 * * 1-5"
-    # 10:15 AM IST = 4:45  UTC — scanner
-    - cron: "45 4 * * 1-5"
-    # 10:30 AM IST = 5:00  UTC — updater
-    - cron: "0 5 * * 1-5"
-    # 10:45 AM IST = 5:15  UTC — scanner
-    - cron: "15 5 * * 1-5"
-    # 11:00 AM IST = 5:30  UTC — updater
-    - cron: "30 5 * * 1-5"
-    # 11:15 AM IST = 5:45  UTC — scanner
-    - cron: "45 5 * * 1-5"
-    # 11:30 AM IST = 6:00  UTC — updater
-    - cron: "0 6 * * 1-5"
-    # 11:45 AM IST = 6:15  UTC — scanner
-    - cron: "15 6 * * 1-5"
-    # 12:00 PM IST = 6:30  UTC — updater
-    - cron: "30 6 * * 1-5"
-    # 12:15 PM IST = 6:45  UTC — scanner
-    - cron: "45 6 * * 1-5"
-    # 12:30 PM IST = 7:00  UTC — updater (also midday daily scan)
-    # 12:45 PM IST = 7:15  UTC — scanner
-    - cron: "15 7 * * 1-5"
-    # 1:00  PM IST = 7:30  UTC — updater
-    - cron: "30 7 * * 1-5"
-    # 1:15  PM IST = 7:45  UTC — scanner
-    - cron: "45 7 * * 1-5"
-    # 1:30  PM IST = 8:00  UTC — updater
-    - cron: "0 8 * * 1-5"
-    # 1:45  PM IST = 8:15  UTC — scanner
-    - cron: "15 8 * * 1-5"
-    # 2:00  PM IST = 8:30  UTC — updater
-    - cron: "30 8 * * 1-5"
-    # 2:15  PM IST = 8:45  UTC — scanner
-    - cron: "45 8 * * 1-5"
-    # 2:30  PM IST = 9:00  UTC — updater
-    - cron: "0 9 * * 1-5"
-    # 2:45  PM IST = 9:15  UTC — scanner
-    - cron: "15 9 * * 1-5"
-    # 3:00  PM IST = 9:30  UTC — updater
-    - cron: "30 9 * * 1-5"
-    # 3:15  PM IST = 9:45  UTC — scanner
-    - cron: "45 9 * * 1-5"
+    # ── 30-MIN SCANS (update 15m/1h data + halfhour scan in one job) ─────────
+    # Each triggers: data_updater --intraday THEN scanner --halfhour
+    - cron: "30 3 * * 1-5"   #  9:00 AM IST
+    - cron: "0 4 * * 1-5"    #  9:30 AM IST
+    - cron: "30 4 * * 1-5"   # 10:00 AM IST
+    - cron: "0 5 * * 1-5"    # 10:30 AM IST
+    - cron: "30 5 * * 1-5"   # 11:00 AM IST
+    - cron: "0 6 * * 1-5"    # 11:30 AM IST
+    - cron: "30 6 * * 1-5"   # 12:00 PM IST
+    - cron: "30 7 * * 1-5"   #  1:00 PM IST
+    - cron: "0 8 * * 1-5"    #  1:30 PM IST
+    - cron: "30 8 * * 1-5"   #  2:00 PM IST
+    - cron: "0 9 * * 1-5"    #  2:30 PM IST
+    - cron: "30 9 * * 1-5"   #  3:00 PM IST
+    - cron: "0 10 * * 1-5"   #  3:30 PM IST
 
   workflow_dispatch:
     inputs:
@@ -76,13 +38,13 @@ on:
         options:
           - daily
           - halfhour
-          - update-daily
-          - update-intraday
           - gap
           - test
           - healthcheck
           - bootstrap
           - stats
+          - update-daily
+          - update-intraday
 
 permissions:
   contents: write
@@ -90,7 +52,7 @@ permissions:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 200
+    timeout-minutes: 100
 
     steps:
       - uses: actions/checkout@v4
@@ -110,7 +72,6 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # ── Restore price cache ───────────────────────────────────────
       - name: Get week number
         id: week
         run: echo "week=$(date -u +%V)" >> $GITHUB_OUTPUT
@@ -123,7 +84,7 @@ jobs:
           restore-keys: |
             price-cache-${{ runner.os }}-
 
-      # ── Determine mode ────────────────────────────────────────────
+      # ── Determine mode ────────────────────────────────────────────────────────
       - name: Set mode
         id: mode
         run: |
@@ -133,73 +94,68 @@ jobs:
           if [ -n "$INPUT" ]; then
             echo "MODE=$INPUT" >> $GITHUB_OUTPUT
 
-          # 4:00 PM IST daily EOD update
-          elif [ "$SCHED" = "30 10 * * 1-5" ]; then
-            echo "MODE=update-daily" >> $GITHUB_OUTPUT
-
-          # 4:30 PM IST daily scan
-          elif [ "$SCHED" = "0 11 * * 1-5" ]; then
-            echo "MODE=daily" >> $GITHUB_OUTPUT
-
-          # 8:00 AM and 12:30 PM daily scans
-          elif [ "$SCHED" = "30 2 * * 1-5" ] || [ "$SCHED" = "0 7 * * 1-5" ]; then
-            echo "MODE=daily" >> $GITHUB_OUTPUT
-
-          # Gap scan at 9:20 AM
+          # Gap scan 9:20 AM IST = 3:50 UTC
           elif [ "$SCHED" = "50 3 * * 1-5" ]; then
             echo "MODE=gap" >> $GITHUB_OUTPUT
 
-          # Intraday updater slots (:00 and :30 of each hour)
-          elif echo "$SCHED" | grep -qE "^[03]0 [4-9] \* \* 1-5$"; then
-            echo "MODE=update-intraday" >> $GITHUB_OUTPUT
+          # Daily scans: 8 AM, 12:30 PM, 4:30 PM IST
+          elif [ "$SCHED" = "30 2 * * 1-5" ] || \
+               [ "$SCHED" = "0 7 * * 1-5" ]  || \
+               [ "$SCHED" = "0 11 * * 1-5" ]; then
+            echo "MODE=daily" >> $GITHUB_OUTPUT
 
-          # Scanner slots (:15 and :45 of each hour)
+          # Everything else = halfhour (30-min market slots)
           else
             echo "MODE=halfhour" >> $GITHUB_OUTPUT
           fi
 
-      # ── Execute ───────────────────────────────────────────────────
-      - name: Run data updater (EOD)
-        if: steps.mode.outputs.MODE == 'update-daily'
+      # ── DAILY: update EOD data then full scan ─────────────────────────────────
+      - name: Daily (update 1d/1wk/1mo + full scan)
+        if: steps.mode.outputs.MODE == 'daily'
         env:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-        run: python data_updater.py --daily
+        run: |
+          echo "Step 1/3: Update EOD bars"
+          python data_updater.py --daily
+          echo "Step 2/3: Update sector indices"
+          python data_updater.py --sectors
+          echo "Step 3/3: Full pattern scan"
+          python scanner.py --daily --telegram
 
-      - name: Run data updater (intraday)
-        if: steps.mode.outputs.MODE == 'update-intraday'
-        run: python data_updater.py --intraday
+      # ── HALFHOUR: update intraday data then scan ──────────────────────────────
+      - name: Halfhour (update 15m/1h + halfhour scan)
+        if: steps.mode.outputs.MODE == 'halfhour'
+        env:
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: |
+          echo "Step 1/2: Update intraday bars (15m + 1h)"
+          python data_updater.py --intraday
+          echo "Step 2/2: Halfhour pattern scan"
+          python scanner.py --halfhour --telegram
 
-      - name: Run gap scanner
+      # ── GAP SCANNER: first bars of the day ───────────────────────────────────
+      - name: Gap scanner
         if: steps.mode.outputs.MODE == 'gap'
         env:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
         run: python data_updater.py --gap --telegram
 
-      - name: Run scanner (daily)
-        if: steps.mode.outputs.MODE == 'daily'
-        env:
-          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
-          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-        run: python scanner.py --daily --telegram
-
-      - name: Run scanner (halfhour)
-        if: steps.mode.outputs.MODE == 'halfhour'
-        env:
-          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
-          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-        run: python scanner.py --halfhour --telegram
-
-      - name: Test run
+      # ── TEST: update then test scan ───────────────────────────────────────────
+      - name: Test
         if: steps.mode.outputs.MODE == 'test'
-        run: python scanner.py --test
+        run: |
+          python data_updater.py --intraday
+          python scanner.py --test
 
+      # ── STANDALONE MODES ─────────────────────────────────────────────────────
       - name: Healthcheck
         if: steps.mode.outputs.MODE == 'healthcheck'
         run: python scanner.py --healthcheck
 
-      - name: Bootstrap (first run — safe to re-run, skips completed stocks)
+      - name: Bootstrap (one-time full download ~65 min)
         if: steps.mode.outputs.MODE == 'bootstrap'
         timeout-minutes: 90
         run: |
@@ -210,7 +166,15 @@ jobs:
         if: steps.mode.outputs.MODE == 'stats'
         run: python data_updater.py --stats
 
-      # ── Save price cache ──────────────────────────────────────────
+      - name: Standalone EOD update
+        if: steps.mode.outputs.MODE == 'update-daily'
+        run: python data_updater.py --daily
+
+      - name: Standalone intraday update
+        if: steps.mode.outputs.MODE == 'update-intraday'
+        run: python data_updater.py --intraday
+
+      # ── Save price cache ──────────────────────────────────────────────────────
       - name: Save price cache
         if: always()
         uses: actions/cache/save@v4
@@ -218,7 +182,7 @@ jobs:
           path: price_cache.db
           key: price-cache-${{ runner.os }}-week${{ steps.week.outputs.week }}-${{ github.run_number }}
 
-      # ── Commit watchlist ──────────────────────────────────────────
+      # ── Commit watchlist ──────────────────────────────────────────────────────
       - name: Commit watchlist
         if: steps.mode.outputs.MODE == 'daily'
         run: |
@@ -228,7 +192,7 @@ jobs:
           git diff --staged --quiet || git commit -m "watchlist: $(date -u '+%Y-%m-%d %H:%M UTC')"
           git push || true
 
-      # ── Upload artifacts ──────────────────────────────────────────
+      # ── Upload artifacts ──────────────────────────────────────────────────────
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
