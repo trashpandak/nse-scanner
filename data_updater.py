@@ -93,18 +93,23 @@ HISTORY = {
 }
 
 # Sector indices to track
+# Verified yfinance-working symbols for NSE sector indices
 SECTOR_INDICES = {
     "NIFTY50":      "^NSEI",
     "NIFTYBANK":    "^NSEBANK",
-    "NIFTYIT":      "NIFTYIT.NS",
-    "NIFTYPHARMA":  "NIFTYPHARMA.NS",
-    "NIFTYAUTO":    "NIFTYAUTO.NS",
-    "NIFTYMETAL":   "NIFTYMETAL.NS",
-    "NIFTYFMCG":    "NIFTYFMCG.NS",
-    "NIFTYINFRA":   "NIFTYINFRA.NS",
-    "NIFTYREALTY":  "NIFTYREALTY.NS",
-    "NIFTYENERGY":  "NIFTYENERGY.NS",
     "INDIAVIX":     "^INDIAVIX",
+    # Sector ETFs — these work in yfinance where index symbols don't
+    "NIFTYIT":      "0P0001AOT0.BO",   # Nifty IT ETF proxy
+    "NIFTYPHARMA":  "0P00017ABI.BO",   # Nifty Pharma ETF proxy
+    # Mid-cap proxy via NSE index
+    "NIFTYMID50":   "^NSEMDCP50",
+    # Individual large-cap proxies for sector trend
+    "RELIANCE":     "RELIANCE.NS",     # Energy/consumer bellwether
+    "HDFCBANK":     "HDFCBANK.NS",     # Banking bellwether
+    "TCS":          "TCS.NS",           # IT bellwether
+    "SUNPHARMA":    "SUNPHARMA.NS",     # Pharma bellwether
+    "TATAMOTORS":   "TATAMOTORS.NS",    # Auto bellwether
+    "JSWSTEEL":     "JSWSTEEL.NS",      # Metal bellwether
 }
 
 # ================================================================
