@@ -73,7 +73,7 @@ def _now():  return datetime.now(_IST)
 def _today(): return _now().date()
 def _ist(fmt="%H:%M IST"): return _now().strftime(fmt)
 
-MAX_WORKERS   = 6
+MAX_WORKERS   = 4   # reduced to avoid Yahoo rate limiting
 DL_RETRIES    = 3
 DL_BACKOFF    = 3.0
 MARKET_OPEN   = (9, 15)    # IST
@@ -165,6 +165,10 @@ def dl(sym: str, interval: str = "1d", period: str = "1y") -> pd.DataFrame | Non
             if "401" in msg or "Crumb" in msg or "Unauthorized" in msg:
                 log.warning(f"401 {sym} attempt {attempt+1} — reset session")
                 _reset_session(); time.sleep(5)
+            elif "RateLimit" in msg or "Too Many" in msg or "429" in msg:
+                wait = DL_BACKOFF * (2 ** attempt)
+                log.debug(f"Rate limit {sym} — wait {wait:.0f}s")
+                time.sleep(wait)
             elif attempt < DL_RETRIES - 1:
                 time.sleep(DL_BACKOFF * (attempt + 1))
     return None
