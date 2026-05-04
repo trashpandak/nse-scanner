@@ -77,7 +77,7 @@ NIFTY_SYM    = "^NSEI"
 PERIOD_DAILY = "1y"
 STALE_DAYS   = 5     # re-fetch full history if cache is older than this
 PERIOD_QUICK = "3mo"
-MAX_WORKERS  = 4
+MAX_WORKERS  = 3   # reduced to avoid Yahoo rate limiting
 DL_RETRIES   = 3
 DL_BACKOFF   = 3.0
 QUICK_SIZE   = 300   # stocks scanned in 30-min mode
@@ -635,6 +635,10 @@ def dl(sym, interval="1d", period=PERIOD_DAILY):
                 log.warning(f"401/Crumb on {sym} attempt {attempt+1} — reset session")
                 _reset_session()
                 time.sleep(5)
+            elif "RateLimit" in msg or "Too Many" in msg or "429" in msg:
+                wait = DL_BACKOFF * (2 ** attempt)   # exponential: 3, 6, 12s
+                log.debug(f"Rate limit {sym} attempt {attempt+1} — wait {wait:.0f}s")
+                time.sleep(wait)
             elif attempt < DL_RETRIES - 1:
                 time.sleep(DL_BACKOFF * (attempt + 1))
     return None
@@ -672,6 +676,8 @@ def dl_fund(sym):
                 log.warning(f"401/Crumb on fund {sym} attempt {attempt+1} — reset session")
                 _reset_session()
                 time.sleep(5)
+            elif "RateLimit" in msg or "Too Many" in msg or "429" in msg:
+                time.sleep(DL_BACKOFF * (2 ** attempt))
             elif attempt < DL_RETRIES - 1:
                 time.sleep(DL_BACKOFF * (attempt + 1))
     return {"_fund_ok": False}
@@ -933,9 +939,9 @@ def calc_targets(pattern, bz, bottom, cmp, adr, close=None):
 def calc_position_size(entry: float, stop: float) -> dict:
     """Minervishi: risk RISK_PCT_PER_TRADE of portfolio. Shares = max_loss / risk_per_share."""
     if not entry or not stop or stop >= entry:
-        return {"shares": 0, "value": 0}
+        return {"pos_shares": 0, "pos_value": 0}
     shares = int((PORTFOLIO_VALUE * RISK_PCT_PER_TRADE) / (entry - stop))
-    return {"shares": shares, "value": round(shares * entry, 0)}
+    return {"pos_shares": shares, "pos_value": round(shares * entry, 0)}
 
 def identify_leg(close, bz):
     if len(close) < 50 or not bz: return "Unknown"
@@ -2058,7 +2064,7 @@ def scan_stock_intraday(sym: str, nifty_d, ftd_active: bool,
                 target_1=t1, target_2=t2, target_3=t3, risk_reward=rr,
                 quality=best["quality"], vol_surge=best.get("vs"),
                 rs_percentile=rs_pct, dist_52wk_pct=dist_52wk,
-                pos_shares=pos["shares"], pos_value=pos["value"],
+                pos_shares=pos["pos_shares"], pos_value=pos["pos_value"],
                 canslim_score=cs, data_completeness=completeness, converging=None, leg=leg,
                 earnings_near=1 if earnings_near else 0, ftd_active=1 if ftd_active else 0,
                 vol_dryup=1 if vdu else 0, stage=stage, recommendation=rec,
